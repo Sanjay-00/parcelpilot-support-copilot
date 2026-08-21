@@ -2347,9 +2347,9 @@ def plan_node(state: AgentState) -> dict:
     }
 
 
-def gather_node(state: AgentState, config_: dict) -> dict:
-    conn = config_["configurable"]["conn"]
-    user = config_["configurable"]["user"]
+def gather_node(state: AgentState, config: dict) -> dict:
+    conn = config["configurable"]["conn"]
+    user = config["configurable"]["user"]
     entities = state["entities"]
     tool_log = list(state.get("tool_call_log", []))
 
@@ -2402,9 +2402,9 @@ def _route_after_gather(state: AgentState) -> str:
     return "classify_severity"
 
 
-def resolve_order_node(state: AgentState, config_: dict) -> dict:
-    conn = config_["configurable"]["conn"]
-    reference_time = config_["configurable"]["reference_time"]
+def resolve_order_node(state: AgentState, config: dict) -> dict:
+    conn = config["configurable"]["conn"]
+    reference_time = config["configurable"]["reference_time"]
     order = state["data_evidence"]["order"]
     if state["detected_scenario"] == "cancellation":
         decision = resolve_cancellation(conn, order)
@@ -2439,9 +2439,9 @@ def severity_needs_review_node(state: AgentState) -> dict:
     }
 
 
-def resolve_sla_node(state: AgentState, config_: dict) -> dict:
-    conn = config_["configurable"]["conn"]
-    reference_time = config_["configurable"]["reference_time"]
+def resolve_sla_node(state: AgentState, config: dict) -> dict:
+    conn = config["configurable"]["conn"]
+    reference_time = config["configurable"]["reference_time"]
     ticket = state["data_evidence"]["ticket"]
     account = state["data_evidence"]["account"]
     decision = resolve_sla(conn, ticket, account, state["_severity"], reference_time)
