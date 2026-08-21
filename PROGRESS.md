@@ -67,6 +67,30 @@ Full architecture reasoning is in the design spec linked above.
 
 ## What we've built so far
 
+**2026-08-21 — First live test with a real Gemini API key ⚠️→✅**
+
+- *Plain language:* every AI-touching part of this project had only ever
+  been tested with a real key skipped (no one building it had one). The
+  moment a real key was supplied and everything was run against it live,
+  3 real bugs surfaced that no amount of code review could have caught
+  without an actual model call: (1) the exact way we asked Gemini to
+  return structured data crashed instantly against Google's library —
+  fixed by relying on the plain-text instructions plus our own
+  after-the-fact validation instead; (2) the specific AI model name we'd
+  been using had been discontinued by Google — updated to the current
+  one; (3) a real logic mistake meant a ticket that was *confidently*
+  flagged as a security incident could still get blocked from being
+  classified, if some unrelated detail about it was uncertain — fixed so
+  a confident "yes" on any single P1 condition wins immediately. After
+  these fixes, all 56 tests pass with zero skips — the first time this
+  project's full functionality, including real AI calls, has been
+  verified end-to-end.
+- *Technical:* `app/severity.py` (dropped `response_schema=IncidentFacts`,
+  reordered `map_severity`'s unknown-vs-True checks, clarified the
+  extraction prompt's field definitions), `app/agent.py` (dropped
+  `response_schema=_PlanExtraction`, updated model name), both to
+  `gemini-3.6-flash`.
+
 **2026-08-21 — Task 1: Project scaffold, schema, workbook seed loader ✅**
 
 - *Plain language:* the project now has an empty database with the right
