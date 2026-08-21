@@ -19,3 +19,13 @@ def test_manager_authorized_for_any_account(conn):
     manager = get_user(conn, "manager")
     assert authorize(manager, "ACCT-001") is True
     assert authorize(manager, "ACCT-004") is True
+
+
+def test_get_user_unknown_user_id_raises_value_error(conn):
+    load_base(conn, DATA_PACK_XLSX)
+    load(conn)
+    try:
+        get_user(conn, "unknown_user_id")
+        assert False, "Expected ValueError to be raised"
+    except ValueError as e:
+        assert "Unknown user_id: unknown_user_id" in str(e)
