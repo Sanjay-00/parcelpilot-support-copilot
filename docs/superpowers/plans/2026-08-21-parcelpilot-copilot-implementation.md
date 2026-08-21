@@ -2595,13 +2595,10 @@ def _visible_open_tickets(conn: sqlite3.Connection, user: StaffUser):
 
 
 def issue_clusters(conn: sqlite3.Connection, user: StaffUser) -> list:
-    known_issue_chunks = conn.execute(
-        "SELECT chunk_id, text FROM document_chunks WHERE 'known_issue' IN "
-        "(SELECT value FROM json_each('[\"' || REPLACE(scenario_tags, ',', '\",\"') || '\"]'))"
-    ).fetchall() if False else conn.execute(
+    all_chunks = conn.execute(
         "SELECT chunk_id, text, scenario_tags FROM document_chunks"
     ).fetchall()
-    known_issue_chunks = [c for c in known_issue_chunks if "known_issue" in c["scenario_tags"].split(",")]
+    known_issue_chunks = [c for c in all_chunks if "known_issue" in c["scenario_tags"].split(",")]
 
     tickets = _visible_open_tickets(conn, user)
 
@@ -2633,6 +2630,8 @@ def _keyword_overlap(ticket_text: str, chunk_text: str) -> bool:
 
 
 def sla_risk_tickets(conn: sqlite3.Connection, user: StaffUser) -> list:
+    from datetime import datetime
+
     from app.models import AccountFacts, TicketFacts
     from app.resolvers import resolve_sla
     from app.severity import extract_incident_facts, map_severity
@@ -2643,10 +2642,11 @@ def sla_risk_tickets(conn: sqlite3.Connection, user: StaffUser) -> list:
     for row in _visible_open_tickets(conn, user):
         ticket = TicketFacts(
             ticket_id=row["ticket_id"], account_id=row["account_id"],
-            created_at=__import__("datetime").datetime.fromisoformat(row["created_at"]),
+            created_at=datetime.fromisoformat(row["created_at"]),
             status=row["status"], subject=row["subject"], description=row["description"],
             channel=row["channel"], assigned_to=row["assigned_to"],
-            last_customer_message_at=None, historical_resolution=row["historical_resolution"],
+            last_customer_message_at=datetime.fromisoformat(row["last_customer_message_at"]) if row["last_customer_message_at"] else None,
+            historical_resolution=row["historical_resolution"],
         )
         account_row = conn.execute(
             "SELECT * FROM accounts WHERE account_id = ?", (ticket.account_id,)
