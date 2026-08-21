@@ -55,7 +55,7 @@ Full architecture reasoning is in the design spec linked above.
 | 7 | query_operations_data + search_policy_documents tools | ✅ Done |
 | 8 | IncidentFacts extraction + severity mapping | ✅ Done |
 | 9 | Action layer (create_action/confirm_action) + audit log | ✅ Done |
-| 10 | LangGraph agent workflow | ⬜ Not started |
+| 10 | LangGraph agent workflow | ✅ Done |
 | 11 | Overview (SLA risk + issue clustering) | ⬜ Not started |
 | 12 | FastAPI app + UI | ⬜ Not started |
 | 13 | Dockerize + deploy | ⬜ Not started |
@@ -226,20 +226,40 @@ Full architecture reasoning is in the design spec linked above.
   confirm attempt, always writes exactly one audit row per call). 44/44
   tests passing, 2 fix rounds, commits `b0891b7..ec8ba27`.
 
+**2026-08-21 — Task 10: LangGraph agent workflow ✅**
+
+- *Plain language:* the whole system can now actually run end-to-end as
+  one conversation flow — question in, evidence gathered, decision
+  computed, explanation out — with built-in "stop here" points for denied
+  access, missing records, or genuinely uncertain severity. This task
+  caught the most serious bug of the project so far: a one-character-off
+  naming choice (`config_` instead of `config`) meant the workflow would
+  have crashed on literally every real question asked of it, because the
+  underlying graph library only recognizes that parameter by its exact
+  name. It slipped through because the only tests that had run so far
+  tested the branching logic in isolation, never the real workflow engine
+  itself. Fixed, and a new test was added that runs the actual workflow
+  end-to-end (with the AI call swapped out for a fixed stand-in, so it
+  needs no live key) specifically so this class of bug can't hide again.
+- *Technical:* `app/agent.py` — a LangGraph `StateGraph`: `plan` (Gemini)
+  → `gather` (tools, catches access/lookup errors) → conditional routing
+  → `resolve_order`/`classify_severity` → (ticket path) conditional
+  routing → `resolve_sla_step` → `explain` (Gemini). 47/47 tests passing,
+  1 fix round (the critical naming bug + a real graph-execution test), 3
+  minor items parked, commits `35f0a59..0264d14`.
+
 ## What's next
 
-**Task 10: LangGraph agent workflow**
+**Task 11: Overview — SLA-risk list and issue clustering**
 
-- *Plain language:* wiring everything built so far into one actual
-  conversation flow — a real branching workflow (not just a linear
-  script) that routes a support agent's question through identifying the
-  account, checking authorization, gathering evidence, computing the
-  right decision, and explaining it — with built-in "stop here" points
-  for denied access, missing records, or genuinely uncertain severity.
-- *Technical:* `app/agent.py` — a LangGraph `StateGraph` with nodes for
-  planning (Gemini), gathering (tools), resolving (the three deterministic
-  resolvers), severity classification, and explanation (Gemini), wired
-  with conditional edges rather than nested if/else.
+- *Plain language:* the "before anyone even asks" view — surfacing which
+  tickets are at risk of breaching their response time, and grouping
+  tickets that look like the same underlying product issue, so a support
+  manager can spot trouble without having to ask the right question first.
+- *Technical:* `app/overview.py` — `sla_risk_tickets` and `issue_clusters`,
+  both reusing the exact same tools/resolvers already built (no new
+  infrastructure, no ML clustering — matches known-issue documents by
+  keyword, same mechanism as citation search).
 
 ---
 
