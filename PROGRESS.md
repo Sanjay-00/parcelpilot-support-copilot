@@ -56,7 +56,7 @@ Full architecture reasoning is in the design spec linked above.
 | 8 | IncidentFacts extraction + severity mapping | ✅ Done |
 | 9 | Action layer (create_action/confirm_action) + audit log | ✅ Done |
 | 10 | LangGraph agent workflow | ✅ Done |
-| 11 | Overview (SLA risk + issue clustering) | ⬜ Not started |
+| 11 | Overview (SLA risk + issue clustering) | ✅ Done |
 | 12 | FastAPI app + UI | ⬜ Not started |
 | 13 | Dockerize + deploy | ⬜ Not started |
 | 14 | Submission deliverables (docs + demo video) | ⬜ Not started |
@@ -248,18 +248,32 @@ Full architecture reasoning is in the design spec linked above.
   1 fix round (the critical naming bug + a real graph-execution test), 3
   minor items parked, commits `35f0a59..0264d14`.
 
+**2026-08-21 — Task 11: Overview (SLA-risk + issue clustering) ✅**
+
+- *Plain language:* the system can now proactively surface trouble
+  instead of waiting to be asked — which open tickets are at risk of
+  breaching their response time, and which tickets look like the same
+  underlying product bug (grouped by matching known-issue documents),
+  flagging when a bug is hitting more than one customer at once. Verified
+  by hand against all 5 real open tickets: correctly groups the two bug
+  reports under their matching known issues, and correctly leaves the
+  outage, billing, and security tickets unclustered.
+- *Technical:* `app/overview.py` — `issue_clusters` and `sla_risk_tickets`,
+  both reusing existing tools with zero new infrastructure (no ML/embeddings).
+  Reviewed clean, 2 minor polish items parked, commit `3ce6563`.
+
 ## What's next
 
-**Task 11: Overview — SLA-risk list and issue clustering**
+**Task 12: FastAPI app and UI**
 
-- *Plain language:* the "before anyone even asks" view — surfacing which
-  tickets are at risk of breaching their response time, and grouping
-  tickets that look like the same underlying product issue, so a support
-  manager can spot trouble without having to ask the right question first.
-- *Technical:* `app/overview.py` — `sla_risk_tickets` and `issue_clusters`,
-  both reusing the exact same tools/resolvers already built (no new
-  infrastructure, no ML clustering — matches known-issue documents by
-  keyword, same mechanism as citation search).
+- *Plain language:* the actual web page a support agent would use — a
+  chat box to ask questions, a live "what is it doing right now" timeline
+  showing which tools are being called, an overview dashboard, and an
+  action-confirmation flow, plus a simple "log in as" switcher for the
+  mocked users.
+- *Technical:* `app/main.py` (FastAPI routes wiring the agent, overview,
+  and actions layer), `app/templates/index.html` + `app/static/` (Jinja2 +
+  vanilla JS, no frontend framework).
 
 ---
 
