@@ -36,31 +36,41 @@ def test_confirm_action_executes_and_writes_one_audit_row(conn):
     assert audit_count == 1
 
 
-def test_confirm_action_records_failed_not_executed_on_db_error(conn):
+def test_confirm_action_records_failed_not_executed_on_db_error():
     # Simulates the mocked external side effect failing (e.g. a real ticket-system
     # escalation call would raise here in production) by making exactly the
-    # EXECUTED-update statement fail, while everything else on this connection
+    # EXECUTED-update statement fail, while everything else on the connection
     # still works normally. Proves confirm_action's try/except actually routes
     # a failure to FAILED instead of silently reporting EXECUTED.
+    #
+    # Uses a fresh, purpose-built connection (not the shared `conn` fixture)
+    # via subclassing sqlite3.Connection, rather than patch.object on the
+    # class -- Python 3.12+ does not allow patching methods directly on
+    # sqlite3.Connection (it's an immutable/static type), so subclassing is
+    # the supported way to override its behavior.
     import sqlite3
-    from unittest.mock import patch
 
+    from app import db
+
+    class FlakyConnection(sqlite3.Connection):
+        def execute(self, sql, parameters=()):
+            if sql.startswith("UPDATE actions SET status = 'EXECUTED'"):
+                raise sqlite3.OperationalError("simulated failure")
+            return super().execute(sql, parameters)
+
+    conn = sqlite3.connect(":memory:", factory=FlakyConnection)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    db.init_schema(conn)
     _seed(conn)
+
     priya = get_user(conn, "priya_mehta")
     draft = create_action(
         conn, "create_escalation", "ACCT-001", ticket_id="TKT-501", order_id=None,
         payload={"reason": "..."}, user=priya,
     )
 
-    original_execute = sqlite3.Connection.execute
-
-    def flaky_execute(self, sql, parameters=()):
-        if sql.startswith("UPDATE actions SET status = 'EXECUTED'"):
-            raise sqlite3.OperationalError("simulated failure")
-        return original_execute(self, sql, parameters)
-
-    with patch.object(sqlite3.Connection, "execute", flaky_execute):
-        result = confirm_action(conn, draft.action_id, priya)
+    result = confirm_action(conn, draft.action_id, priya)
 
     assert result.status == "FAILED"
     row = conn.execute("SELECT status FROM actions WHERE action_id = ?", (draft.action_id,)).fetchone()
