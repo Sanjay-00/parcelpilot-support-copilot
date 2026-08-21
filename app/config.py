@@ -15,6 +15,16 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
+def require_gemini_api_key() -> str:
+    """Fail fast if GEMINI_API_KEY is not set. Call at the moment Gemini is needed."""
+    if not GEMINI_API_KEY:
+        raise RuntimeError(
+            "GEMINI_API_KEY is not set. Export it before starting the app, "
+            "e.g. `export GEMINI_API_KEY=your-key-here`."
+        )
+    return GEMINI_API_KEY
+
+
 def load_reference_time(xlsx_path: str = DATA_PACK_XLSX) -> datetime:
     """Reads the dataset snapshot timestamp from the workbook's README sheet.
 

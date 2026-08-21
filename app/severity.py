@@ -57,7 +57,8 @@ Answer as JSON matching this schema:
 def extract_incident_facts(subject: str, description: str) -> IncidentFacts:
     from google import genai
 
-    client = genai.Client(api_key=config.GEMINI_API_KEY)
+    api_key = config.require_gemini_api_key()
+    client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
         model="gemini-2.0-flash",
         contents=_PROMPT.format(subject=subject, description=description),
