@@ -49,7 +49,7 @@ Full architecture reasoning is in the design spec linked above.
 | 1 | Project scaffold, schema, workbook seed loader | ✅ Done |
 | 2 | account_policy_facts + typed data models | ✅ Done |
 | 3 | resolve_cancellation + resolve_service_credit | ✅ Done |
-| 4 | resolve_sla (deterministic half) | ⬜ Not started |
+| 4 | resolve_sla (deterministic half) | ✅ Done |
 | 5 | Document chunks (citation corpus) | ⬜ Not started |
 | 6 | RBAC (staff_users) + authorize() | ⬜ Not started |
 | 7 | query_operations_data + search_policy_documents tools | ⬜ Not started |
@@ -119,17 +119,34 @@ Full architecture reasoning is in the design spec linked above.
   earlier), reviewed with 1 fix round (money rounding), 4 minor polish
   items deferred to a later pass, commits `c543000..e9b4f5f`.
 
+**2026-08-21 — Task 4: resolve_sla (deterministic half) ✅**
+
+- *Plain language:* the system can now work out whether a ticket is at
+  risk of breaching its response-time target — but only the "given how
+  urgent this is, are we at risk?" half. Deciding *how urgent* a ticket
+  actually is (from its text) is a separate, later task, kept deliberately
+  apart so this math could be proven correct with zero AI involved. It
+  correctly handles Northstar's 24x7/15-minute override, flags LumenWorks'
+  business-hours target as a wall-clock estimate (since we don't have a
+  real business calendar to work with), and falls back to the standard
+  policy table for accounts with no special contract terms.
+- *Technical:* `app/resolvers.py` gains `resolve_sla` (severity passed in
+  as a parameter, not computed here); `SLADecision` added to `app/models.py`.
+  18/18 tests passing, reviewed clean, commit `e232037`.
+
 ## What's next
 
-**Task 4: resolve_sla (deterministic half)**
+**Task 5: Document chunks (citation corpus)**
 
-- *Plain language:* the third resolver — figuring out how urgent a support
-  ticket is (P1/P2/P3) and whether it's at risk of breaching its response-
-  time target, given a severity that's already been decided elsewhere.
-- *Technical:* `app/resolvers.py` gains `resolve_sla`; `SLADecision` added
-  to `app/models.py`. Tests pass severity in directly (no AI call in this
-  task), covering Northstar's 24x7 override, LumenWorks' business-hours
-  caveat, and the Standard-plan default table.
+- *Plain language:* the other half of the two-artifact split — turning the
+  6 policy/contract PDFs into a small, tagged set of quotable passages the
+  system can cite in an answer (separate from the numeric facts from
+  Task 2, which drive calculations). A bug in one can never silently
+  change the other's output.
+- *Technical:* `app/documents.py` — 19 hand-extracted, section-level chunks
+  with metadata (`customer_id`, `status`, `scenario_tags`), loaded into the
+  `document_chunks` table. Confirms the deprecated policy is present but
+  excluded from normal retrieval by its `status`.
 
 ---
 
