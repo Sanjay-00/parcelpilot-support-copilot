@@ -2575,9 +2575,40 @@ def _keyword_overlap(ticket_text: str, chunk_text: str) -> bool:
 
 
 def sla_risk_tickets(conn: sqlite3.Connection, user: StaffUser) -> list:
-    # Populated in the UI task once resolve_sla + severity extraction are wired
-    # together per-ticket; kept as a thin wrapper here for now.
-    return []
+    from app.models import AccountFacts, TicketFacts
+    from app.resolvers import resolve_sla
+    from app.severity import extract_incident_facts, map_severity
+    from app import config
+
+    reference_time = config.REFERENCE_TIME.replace(tzinfo=None)
+    results = []
+    for row in _visible_open_tickets(conn, user):
+        ticket = TicketFacts(
+            ticket_id=row["ticket_id"], account_id=row["account_id"],
+            created_at=__import__("datetime").datetime.fromisoformat(row["created_at"]),
+            status=row["status"], subject=row["subject"], description=row["description"],
+            channel=row["channel"], assigned_to=row["assigned_to"],
+            last_customer_message_at=None, historical_resolution=row["historical_resolution"],
+        )
+        account_row = conn.execute(
+            "SELECT * FROM accounts WHERE account_id = ?", (ticket.account_id,)
+        ).fetchone()
+        account = AccountFacts(
+            account_row["account_id"], account_row["account_name"], account_row["plan"],
+            account_row["status"], account_row["csm"], account_row["contract_file"],
+            bool(account_row["premium_support"]),
+        )
+        incident_facts = extract_incident_facts(ticket.subject, ticket.description)
+        severity, needs_review = map_severity(incident_facts)
+        if needs_review or severity is None:
+            results.append({"ticket_id": ticket.ticket_id, "severity": None, "at_risk": None, "needs_review": True})
+            continue
+        decision = resolve_sla(conn, ticket, account, severity, reference_time)
+        results.append({
+            "ticket_id": ticket.ticket_id, "severity": decision.severity,
+            "at_risk": decision.at_risk, "needs_review": False,
+        })
+    return results
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -2585,11 +2616,39 @@ def sla_risk_tickets(conn: sqlite3.Connection, user: StaffUser) -> list:
 Run: `pytest tests/test_overview.py -v`
 Expected: PASS (1 passed)
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Add the SLA-risk test (network-gated, matches Task 8/10's skipif pattern)**
+
+Append to `tests/test_overview.py`:
+
+```python
+import os
+
+import pytest
+
+from app.overview import sla_risk_tickets
+
+
+@pytest.mark.skipif(not os.environ.get("GEMINI_API_KEY"), reason="requires GEMINI_API_KEY")
+def test_tkt501_and_tkt505_are_p1_at_risk(conn):
+    load_base(conn, DATA_PACK_XLSX)
+    load_docs(conn)
+    load_users(conn)
+    manager = get_user(conn, "manager")
+    results = {r["ticket_id"]: r for r in sla_risk_tickets(conn, manager)}
+    assert results["TKT-501"]["severity"] == "P1"
+    assert results["TKT-505"]["severity"] == "P1"
+```
+
+- [ ] **Step 6: Run with a real key to verify it passes**
+
+Run: `GEMINI_API_KEY=... pytest tests/test_overview.py -v`
+Expected: PASS (2 passed)
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add app/overview.py tests/test_overview.py
-git commit -m "feat: proactive issue clustering by known-issue keyword match"
+git commit -m "feat: proactive issue clustering and SLA-risk list, both reusing existing tools"
 ```
 
 ---
@@ -2612,7 +2671,7 @@ renders the shell, `POST /api/investigate` returns a JSON body containing
 - Test: `tests/test_main.py`
 
 **Interfaces:**
-- Consumes: `agent.run`, `auth.get_user`, `overview.issue_clusters`, `actions.create_action`/`confirm_action`
+- Consumes: `agent.run`, `auth.get_user`, `overview.issue_clusters`/`sla_risk_tickets`, `actions.create_action`/`confirm_action`
 - Produces: `POST /api/investigate {query, user_id} -> {answer_text, tool_call_log, decision_status, policy_decision}`
 - Produces: `GET /api/overview?user_id=... -> {clusters: [...]}`
 - Produces: `POST /api/actions/confirm {action_id, user_id} -> {status}`
@@ -2654,7 +2713,7 @@ from app import config, db
 from app.agent import run
 from app.auth import get_user, load as load_users
 from app.documents import load as load_docs
-from app.overview import issue_clusters
+from app.overview import issue_clusters, sla_risk_tickets
 from app.policy_facts import load as load_facts
 from app.seed_accounts_orders_tickets import load as load_base
 
@@ -2707,7 +2766,7 @@ def investigate(body: InvestigateRequest):
 def overview(user_id: str):
     conn = _get_seeded_connection()
     user = get_user(conn, user_id)
-    return {"clusters": issue_clusters(conn, user)}
+    return {"clusters": issue_clusters(conn, user), "sla_risk": sla_risk_tickets(conn, user)}
 ```
 
 - [ ] **Step 4: Write the Jinja2 shell**
