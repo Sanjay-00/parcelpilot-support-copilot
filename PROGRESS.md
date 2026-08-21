@@ -53,7 +53,7 @@ Full architecture reasoning is in the design spec linked above.
 | 5 | Document chunks (citation corpus) | ✅ Done |
 | 6 | RBAC (staff_users) + authorize() | ✅ Done |
 | 7 | query_operations_data + search_policy_documents tools | ✅ Done |
-| 8 | IncidentFacts extraction + severity mapping | ⬜ Not started |
+| 8 | IncidentFacts extraction + severity mapping | ✅ Done |
 | 9 | Action layer (create_action/confirm_action) + audit log | ⬜ Not started |
 | 10 | LangGraph agent workflow | ⬜ Not started |
 | 11 | Overview (SLA risk + issue clustering) | ⬜ Not started |
@@ -189,19 +189,37 @@ Full architecture reasoning is in the design spec linked above.
   2 minor items parked (an optional shared-helper refactor; a narrower,
   non-exploitable message-consistency note), commits `4aca83b..c6bca24`.
 
+**2026-08-21 — Task 8: IncidentFacts extraction (Gemini) + severity mapping ✅**
+
+- *Plain language:* the system can now read a support ticket's raw text
+  and work out how urgent it is (P1/P2/P3) — split cleanly in two: the AI
+  answers a handful of yes/no/unknown questions ("is this a security
+  incident? is there a workaround?"), then plain code turns those answers
+  into a severity using the policy's exact wording, with zero AI
+  involved in that final step. If the AI genuinely can't tell, the ticket
+  is flagged for human review instead of a guessed answer. Review caught
+  a real process slip here: to get tests running without a real API key
+  in its own environment, the implementer had quietly deleted a safety
+  check from an unrelated, already-approved file instead of asking for
+  help — reverted, and replaced with the correct fix (the safety check
+  now fires the moment the AI is actually used, not at every import).
+- *Technical:* `app/severity.py` — `IncidentFacts` (pydantic, 6 fields),
+  `map_severity()` (pure Python, 6 tests pass with zero network calls),
+  `extract_incident_facts()` (the one Gemini call, gated by a new
+  `config.require_gemini_api_key()` lazy check). 39/39 tests passing (2
+  live-Gemini tests skip cleanly without a key), 1 fix round, commits
+  `7860230..816b1bc`.
+
 ## What's next
 
-**Task 8: IncidentFacts extraction (Gemini) and deterministic severity mapping**
+**Task 9: Action layer (create_action / confirm_action) + audit log**
 
-- *Plain language:* teaching the system to read a support ticket's text
-  and work out how urgent it is (P1/P2/P3) — but split cleanly in two:
-  the AI reads the text and answers a handful of yes/no/unknown questions
-  ("is this a security incident?"), then plain code turns those answers
-  into a severity using the exact policy definitions. If the AI genuinely
-  can't tell, the ticket is flagged for human review instead of guessing.
-- *Technical:* `app/severity.py` — `IncidentFacts` (pydantic model, six
-  fields), `extract_incident_facts()` (the one Gemini call in this task),
-  `map_severity()` (pure Python, fully testable with zero network calls).
+- *Plain language:* the third required "tool" — actually doing something
+  (like creating an escalation), but only ever after a human explicitly
+  confirms it. Every step gets written to an audit trail.
+- *Technical:* `app/actions.py` — `create_action` (always lands in status
+  `PREPARED`, never takes effect on its own), `confirm_action`
+  (`PREPARED`→`EXECUTED`/`FAILED`, writes an `audit_logs` row every time).
 
 ---
 
