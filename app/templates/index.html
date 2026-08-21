@@ -1,0 +1,27 @@
+<title>ParcelPilot AI Support Operations Copilot</title>
+<link rel="stylesheet" href="/static/style.css">
+<div id="app">
+  <header>
+    <h1>ParcelPilot Support Copilot</h1>
+    <select id="user-select">
+      <option value="priya_mehta">Priya Mehta (Northstar, Axis)</option>
+      <option value="arjun_rao">Arjun Rao (LumenWorks)</option>
+      <option value="neha_kapoor">Neha Kapoor (Beacon)</option>
+      <option value="manager">Manager (all accounts)</option>
+    </select>
+  </header>
+  <nav>
+    <button data-tab="investigate" class="active">Investigate</button>
+    <button data-tab="overview">Overview</button>
+    <button data-tab="audit">Actions / Audit</button>
+  </nav>
+  <section id="investigate" class="tab active">
+    <input id="query-input" placeholder="e.g. Can Northstar cancel ORD-1001 without a fee?">
+    <button id="ask-button">Ask</button>
+    <div id="tool-timeline"></div>
+    <div id="answer"></div>
+  </section>
+  <section id="overview" class="tab"></section>
+  <section id="audit" class="tab"></section>
+</div>
+<script src="/static/app.js"></script>

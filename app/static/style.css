@@ -1,0 +1,3 @@
+body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; }
+.tab { display: none; } .tab.active { display: block; }
+#tool-timeline div { color: #555; font-size: 0.9em; }
