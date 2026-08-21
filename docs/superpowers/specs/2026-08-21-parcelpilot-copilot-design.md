@@ -222,7 +222,6 @@ See §5. Example rows derived from the two agreements:
 ```
 ACCT-001, cancellation,    fee_waived,              true,  Northstar Enterprise Agreement, §2
 ACCT-001, cancellation,    waiver_scope,             booked_before_pickup_any_time, Northstar Enterprise Agreement, §2
-ACCT-001, service_credit,  monthly_cap_inr,          5000,  Northstar Enterprise Agreement, §3
 ACCT-001, sla,             p1_target_minutes,        15,    Northstar Enterprise Agreement, §1
 ACCT-001, sla,             p2_target_minutes,        60,    Northstar Enterprise Agreement, §1
 ACCT-001, sla,             p3_target_minutes,        480,   Northstar Enterprise Agreement, §1
@@ -238,8 +237,27 @@ ACCT-003 and ACCT-004 have no rows — resolvers fall through to global
 defaults, which is the correct behaviour for the grader's held-out accounts
 too, since any new account with no override row behaves identically.
 
+**Not stored:** Northstar's agreement (§3) states monthly aggregate service
+credits are capped at ₹5,000, but this is deliberately **not** encoded as a
+fact. Enforcing a cumulative cap requires a ledger of credits already
+issued this month, and the supplied data is a single point-in-time
+snapshot with no such ledger (historical ticket notes are not a reliable
+substitute — they're explicitly context-only and may be wrong). Storing an
+unenforceable number as a "policy fact" would misrepresent what the system
+actually computes. See §21 Known Limitations.
+
 `get_fact(account_id, scenario, fact_name, default)` is the only way
 resolvers read this table.
+
+**Clause-level fallback (explicit rule):** a customer agreement overrides
+the corresponding global default **only for the exact (scenario,
+fact_name) it defines**. Absence of a fact_name under a scenario means the
+current global SOP/policy default for that specific decision dimension
+applies — overriding one fact within a scenario does not imply the whole
+scenario is overridden. This is why LumenWorks overrides
+`service_credit.delay_threshold_hours`/`credit_amount_inr` but its
+`cancellation` scenario has zero rows and therefore falls through entirely
+to the SOP default.
 
 **Rationale:** normalized long form (not wide columns) so each fact keeps
 its own `source_document`/`source_section` — this is what actually
@@ -252,11 +270,17 @@ matching problem to solve).
 
 ```python
 @dataclass
+class Provenance:
+    origin: str             # "account_policy_facts" | "global_default"
+    source_document: str    # e.g. "Northstar Enterprise Agreement" | "SOP v4" | "Policy v3"
+    source_section: str     # e.g. "§2" | "§1" — always the exact section applied
+
+@dataclass
 class CancellationDecision:
     allowed: bool
     fee_inr: float | None
     reason: str
-    source: str            # "account_policy_facts" | "SOP v4"
+    provenance: Provenance
 
 @dataclass
 class CreditDecision:
@@ -265,7 +289,7 @@ class CreditDecision:
     requires_manager_approval: bool
     needs_review: bool
     reason: str
-    source: str
+    provenance: Provenance
 
 @dataclass
 class SLADecision:
@@ -274,7 +298,7 @@ class SLADecision:
     elapsed_minutes: float
     at_risk: bool
     is_first_response_proxy: bool = True   # see §17 limitation
-    source: str
+    provenance: Provenance
 
 def resolve_cancellation(order: OrderFacts, account_id: str) -> CancellationDecision: ...
 def resolve_service_credit(order: OrderFacts, account_id: str, reference_time: datetime) -> CreditDecision: ...
@@ -283,44 +307,64 @@ def resolve_sla(ticket: TicketFacts, account: AccountFacts, incident: IncidentFa
 
 `resolve_cancellation` logic (from SOP v4 §1 + agreement overrides):
 `DRAFT` -> allowed, fee 0. `PICKED_UP`/`DELIVERED` -> not allowed (use
-return-to-origin / cannot cancel). `BOOKED`, not picked up -> check
-`get_fact(account_id, "cancellation", "fee_waived")`; if true and scope
-matches, fee 0; else fee 0 if `cancellation_requested_at - booked_at <= 30min`
-else 250.
+return-to-origin / cannot cancel), `provenance` = (global_default, "SOP
+v4", "§1"). `BOOKED`, not picked up -> check `get_fact(account_id,
+"cancellation", "fee_waived")`; if true and scope matches, fee 0 with
+`provenance` = (account_policy_facts, `<its source_document/source_section>`,
+e.g. "Northstar Enterprise Agreement"/"§2"); else fee 0 if
+`cancellation_requested_at - booked_at <= 30min` else 250, with
+`provenance` = (global_default, "SOP v4", "§1").
 
 `resolve_service_credit` logic (SOP v4 §2 + agreement overrides): if
 `carrier_fault` or `customer_fault` is `NULL` -> `needs_review=True`,
-`eligible=False`, reason "fault unknown, cannot promise a credit per SOP".
-If `customer_fault` -> not eligible. Delay = `pickup_actual_at -
+`eligible=False`, reason "fault unknown, cannot promise a credit per SOP",
+`provenance` = (global_default, "SOP v4", "§3" — the uncertainty guardrail
+clause). If `customer_fault` -> not eligible. Delay = `pickup_actual_at -
 pickup_window_end` if `pickup_actual_at` is set, else `reference_time -
 pickup_window_end` (explicitly distinguishing "delivered late" from "still
 not picked up as of the reference time" — this was the bug flagged and
 fixed in review). Threshold = `get_fact(..., "delay_threshold_hours", default=2)`.
-If delay <= threshold or not `carrier_fault` -> not eligible. Else amount =
+If delay <= threshold or not `carrier_fault` -> not eligible, `provenance`
+per whichever threshold source was used. Else amount =
 `get_fact(..., "credit_amount_inr", default=min(500, 0.10*shipment_fee_inr))`;
-`requires_manager_approval = amount > 1000`.
+`requires_manager_approval = amount > 1000` (SOP v4 §3 — cited in
+`provenance` when the global default amount is used; the account's own
+source_document/source_section when an override applies).
 
 `resolve_sla` logic: severity comes from `IncidentFacts` (§13) mapped per
-Policy v3 §2's exact P1/P2/P3 definitions. Target minutes from
+Policy v3 §2's exact P1/P2/P3 definitions — a deterministic mapping over
+LLM-extracted, possibly-uncertain facts (see §13; the mapping is
+deterministic, the extraction feeding it is not). Target minutes from
 `get_fact(..., "p{n}_target_minutes")` falling back to the plan-tier default
-table in Policy v3 §3. Elapsed = `reference_time - ticket.created_at`.
-Flagged explicitly as a proxy (§17) since no first-response timestamp
-exists in the data.
+table in Policy v3 §3, with `provenance` citing whichever was used. Elapsed
+= `reference_time - ticket.created_at`. Flagged explicitly as a proxy (§17)
+since no first-response timestamp exists in the data.
 
 ## 9. Retrieval algorithm
 
-```
-search_policy_documents(scenario, account_id, keyword=None, current_user):
+`scenario_tags` is stored as a comma-separated TEXT column, so scenario
+membership cannot be expressed as SQL set membership — the SQL step only
+does the authorization/status prefilter, and scenario matching happens in
+Python on the (small, ~20-25 row) result:
+
+```python
+def search_policy_documents(scenario, account_id, keyword, current_user):
     assert current_user is authorized for account_id            # never trust caller
-    candidates = document_chunks WHERE status != 'DEPRECATED'
-                 AND (customer_id IS NULL OR customer_id == account_id)
-                 AND scenario IN scenario_tags
+
+    rows = db.execute(
+        "SELECT * FROM document_chunks WHERE status != 'DEPRECATED' "
+        "AND (customer_id IS NULL OR customer_id = ?)", [account_id]
+    )   # SQL only handles authorization/status — a cheap, safe prefilter
+
+    candidates = [r for r in rows if scenario in r.scenario_tags.split(",")]
+                 # exact tag membership in Python, not a LIKE/substring match
+
     if keyword:
-        candidates = rank(candidates, by=text_contains(keyword))  # ranks WITHIN
-                                                                    # candidates, never escapes
-                                                                    # the authorized/scenario set
-    order: customer-specific chunks before global chunks
-    return candidates as Citation[document, section, text, status, effective_date]
+        candidates = rank(candidates, by=lambda r: keyword.lower() in r.text.lower())
+                 # ranks WITHIN candidates — never escapes the authorized/scenario set
+
+    candidates.sort(key=lambda r: r.customer_id is None)  # customer-specific chunks first
+    return [Citation.from_chunk(r) for r in candidates]
 ```
 
 A separate, explicitly-invoked `compare_with_deprecated_policy(account_id,
@@ -397,25 +441,56 @@ resolution always runs; it is not something the LLM opts into.
 
 ## 13. IncidentFacts extraction contract
 
+Policy v3 §2 defines three severities with several independent conditions
+each, so `IncidentFacts` must capture each condition the definitions
+actually name, not a collapsed summary:
+
 ```python
 class IncidentFacts(BaseModel):
-    is_security_incident: bool | Literal["unknown"]
-    is_complete_outage: bool | Literal["unknown"]
-    is_major_feature_degraded: bool | Literal["unknown"]
-    workaround_exists: bool | Literal["unknown"]
+    is_security_incident: bool | Literal["unknown"]              # "confirmed security incident or suspected credential exposure"
+    is_complete_shipment_outage: bool | Literal["unknown"]        # "complete production outage preventing all shipment creation for a customer"
+    immediate_material_business_risk: bool | Literal["unknown"]   # the P1 catch-all: "another event causing immediate material business risk"
+    is_major_feature_degraded: bool | Literal["unknown"]          # P2: "major feature unavailable or materially degraded"
+    core_operations_possible: bool | Literal["unknown"]           # P2 qualifier: "core operations remain possible"
+    workaround_exists: bool | Literal["unknown"]                  # P1 catch-all qualifier ("no workaround") and P2 qualifier ("or a workaround exists")
 ```
 The LLM extracts this from `ticket.subject` + `ticket.description` only
-(never asked to infer facts already in SQLite, e.g. order status). Validated
-against this strict schema before use. Deterministic mapping (Policy v3
-§2): `is_security_incident` or `is_complete_outage` -> P1; else
-`is_major_feature_degraded` -> P2; else P3. Any required field `"unknown"`
-with no safe default -> `decision_status = NEEDS_REVIEW` instead of guessing.
+(never asked to infer facts already in SQLite, e.g. order status).
+Validated against this strict schema before use — this extraction step is
+**probabilistic**: the model is reading free text and can misjudge or
+mark a field `"unknown"`.
+
+Deterministic mapping (Policy v3 §2, applied only once all fields it
+touches are known — this step, given known inputs, is fully deterministic
+and unit-testable in isolation from the extraction step that feeds it):
+
+```python
+def map_severity(f: IncidentFacts) -> tuple[str | None, bool]:  # (severity, needs_review)
+    if "unknown" in (f.is_security_incident, f.is_complete_shipment_outage):
+        return None, True   # can't rule P1 in or out
+    if f.is_security_incident or f.is_complete_shipment_outage:
+        return "P1", False
+    if "unknown" in (f.immediate_material_business_risk, f.workaround_exists):
+        return None, True
+    if f.immediate_material_business_risk and not f.workaround_exists:
+        return "P1", False
+    if "unknown" in (f.is_major_feature_degraded, f.core_operations_possible, f.workaround_exists):
+        return None, True
+    if f.is_major_feature_degraded and (f.core_operations_possible or f.workaround_exists):
+        return "P2", False
+    return "P3", False
+```
+Any path that can't be resolved without a genuinely unknown field returns
+`NEEDS_REVIEW` rather than guessing.
 
 **Rationale:** keyword/regex classification was rejected because it won't
 generalise to differently-worded held-out tickets; the LLM does the
 inherently linguistic step (does this text describe an outage?), while the
-P1/P2/P3 mapping — the actual policy application — stays 100% deterministic
-and unit-testable given fixed booleans.
+P1/P2/P3 mapping — the actual policy application — is deterministic and
+unit-testable given fixed booleans. The overall severity-classification
+*pipeline* is not "100% deterministic" — only the mapping half of it is;
+the extraction half is probabilistic and can legitimately produce
+`"unknown"`.
 
 ## 14. Action state machine
 
@@ -464,6 +539,15 @@ Single page, FastAPI + Jinja2 + vanilla JS, tabs (no routing):
 
 - **Overview** — SLA-risk tickets, open P1/P2s, known-issue clusters (reads
   the same `query_operations_data`/`resolve_sla` used by Investigate).
+  **Clustering mechanism** (deterministic, no ML/embeddings — reuses the
+  same keyword-matching already built for `search_policy_documents`):
+  for each open ticket, keyword-match its subject+description against the
+  `known_issue`-tagged `document_chunks` (KI-208, KI-211, ...); a ticket
+  that matches a KI chunk is tagged with that KI id. Group open tickets by
+  matched KI id: a group is a "cluster" once it has ≥2 tickets, and is
+  flagged "multi-customer" if the tickets in it span >1 distinct
+  `account_id`. This directly reproduces the TKT-502/TKT-504-style
+  matches used by Investigate, applied in bulk across all open tickets.
 - **Investigate** — chat input; live tool-call timeline ("🔍
   search_policy_documents(cancellation, ACCT-001)"); evidence/citation
   cards with source+section; decision card (fee/credit/severity +
@@ -488,9 +572,19 @@ The UI shows tool execution and evidence, never raw model chain-of-thought.
   and **explicitly labels** an "SLA risk proxy" (ticket age vs. target),
   and does not claim to measure true first-response compliance. This is
   documented, not silently assumed.
-- Business-hours vs 24x7 targets are distinguished by `coverage`, but no
-  full business-calendar engine is built (see Non-goals) — business hours
-  are approximated as a fixed daily window, documented as a simplification.
+- Business-hours vs 24x7 targets are distinguished by `coverage`, but the
+  supplied pack defines no business-hours calendar (no weekday/weekend or
+  working-hours definition anywhere in the data), so none is invented. What
+  **can** be computed deterministically: elapsed *wall-clock* time since
+  `created_at`, compared against the target expressed in business-hours/
+  business-days units, for `coverage="24x7"` accounts this is an accurate
+  elapsed-vs-target comparison. What **cannot** be computed without
+  inventing data: for `coverage="business_hours"` accounts, wall-clock
+  elapsed time overstates risk across nights/weekends relative to true
+  business-hours elapsed time. `SLADecision` for such tickets is therefore
+  labeled as a wall-clock proxy against a business-hours target, with that
+  caveat surfaced in the UI — never silently presented as equivalent to a
+  24x7 calculation.
 - Unknown fault data, monetary approval thresholds, and detected source
   conflicts all route to `NEEDS_REVIEW` per the SOP's own explicit
   guardrail text (§2 SOP: don't promise a credit with unknown fault; >₹1,000
@@ -551,6 +645,15 @@ note as a deliberate scale-appropriate choice, not a limitation.
   probabilistic on the input text, even though the P1/P2/P3 mapping itself
   is deterministic; low-quality ticket text can still produce `"unknown"`
   fields, which is handled via `NEEDS_REVIEW`, not silently guessed.
+- Northstar's contractual monthly service-credit cap (₹5,000, Enterprise
+  Agreement §3) is **not enforced**. Doing so would require a ledger of
+  credits already issued this month, which the supplied snapshot doesn't
+  contain and historical ticket notes can't reliably substitute for. The
+  system surfaces the cap's existence as evidence when relevant but does
+  not compute against it.
+- For `coverage="business_hours"` accounts, `resolve_sla`'s elapsed time is
+  wall-clock, not calendar-adjusted, because the pack defines no business
+  calendar — see §17.
 
 ## 22. Implementation phases
 
