@@ -27,7 +27,7 @@ def get_order(conn: sqlite3.Connection, order_id: str, user: StaffUser) -> Order
     # accounts) — either way, a denial happens before we reveal whether the
     # record exists.
     if owning_account is not None and not authorize(user, owning_account):
-        raise AccessDenied(f"Not authorized for account {owning_account}")
+        raise AccessDenied("Not authorized")
     if owning_account is None:
         if user.role != "manager":
             raise AccessDenied("Not authorized")   # fail closed rather than confirm non-existence
@@ -51,7 +51,7 @@ def get_order(conn: sqlite3.Connection, order_id: str, user: StaffUser) -> Order
 def get_ticket(conn: sqlite3.Connection, ticket_id: str, user: StaffUser) -> TicketFacts:
     owning_account = _account_id_for_ticket(conn, ticket_id)
     if owning_account is not None and not authorize(user, owning_account):
-        raise AccessDenied(f"Not authorized for account {owning_account}")
+        raise AccessDenied("Not authorized")
     if owning_account is None:
         if user.role != "manager":
             raise AccessDenied("Not authorized")
@@ -84,7 +84,7 @@ def get_account(conn: sqlite3.Connection, account_id: str, user: StaffUser) -> A
 def search_policy_documents(
     conn: sqlite3.Connection, scenario: str, account_id: str | None, user: StaffUser,
     keyword: str | None = None,
-) -> list:
+) -> list[Citation]:
     if account_id is not None and not authorize(user, account_id):
         raise AccessDenied(f"Not authorized for account {account_id}")
 
