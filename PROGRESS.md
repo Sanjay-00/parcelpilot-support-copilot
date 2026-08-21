@@ -50,7 +50,7 @@ Full architecture reasoning is in the design spec linked above.
 | 2 | account_policy_facts + typed data models | ✅ Done |
 | 3 | resolve_cancellation + resolve_service_credit | ✅ Done |
 | 4 | resolve_sla (deterministic half) | ✅ Done |
-| 5 | Document chunks (citation corpus) | ⬜ Not started |
+| 5 | Document chunks (citation corpus) | ✅ Done |
 | 6 | RBAC (staff_users) + authorize() | ⬜ Not started |
 | 7 | query_operations_data + search_policy_documents tools | ⬜ Not started |
 | 8 | IncidentFacts extraction + severity mapping | ⬜ Not started |
@@ -134,19 +134,32 @@ Full architecture reasoning is in the design spec linked above.
   as a parameter, not computed here); `SLADecision` added to `app/models.py`.
   18/18 tests passing, reviewed clean, commit `e232037`.
 
+**2026-08-21 — Task 5: Document chunks (citation corpus) ✅**
+
+- *Plain language:* the system now has a small library of exact, quotable
+  passages from the 6 policy/contract documents (e.g. "Northstar Enterprise
+  Agreement §2: 'Northstar may cancel any BOOKED shipment...'"), separate
+  from the numeric facts built in Task 2. This is what lets an answer show
+  *exactly* where a rule came from, word-for-word — a reviewer double-checked
+  5 of the most important passages against the source text and found zero
+  transcription drift.
+- *Technical:* `app/documents.py` — 19 hand-extracted, section-tagged
+  chunks (`customer_id`, `status`, `scenario_tags`) loaded into
+  `document_chunks`; `Citation` dataclass added to `app/models.py`. Counts
+  verified (19 total, 1 deprecated, 12 global, 4 Northstar, 3 LumenWorks),
+  no cross-import with the resolver code. Reviewed clean, commit `0221648`.
+
 ## What's next
 
-**Task 5: Document chunks (citation corpus)**
+**Task 6: RBAC (staff_users) and authorize()**
 
-- *Plain language:* the other half of the two-artifact split — turning the
-  6 policy/contract PDFs into a small, tagged set of quotable passages the
-  system can cite in an answer (separate from the numeric facts from
-  Task 2, which drive calculations). A bug in one can never silently
-  change the other's output.
-- *Technical:* `app/documents.py` — 19 hand-extracted, section-level chunks
-  with metadata (`customer_id`, `status`, `scenario_tags`), loaded into the
-  `document_chunks` table. Confirms the deprecated policy is present but
-  excluded from normal retrieval by its `status`.
+- *Plain language:* setting up the mock support-agent logins and the single
+  choke-point function that decides "is this person allowed to see this
+  customer's data?" — every later data-access function will call this
+  before doing anything else.
+- *Technical:* `app/auth.py` — `staff_users` table (Priya/Arjun/Neha, each
+  scoped to their assigned accounts, plus a manager role with full access),
+  `authorize(user, account_id) -> bool`.
 
 ---
 
