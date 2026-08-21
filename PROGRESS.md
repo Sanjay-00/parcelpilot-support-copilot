@@ -51,7 +51,7 @@ Full architecture reasoning is in the design spec linked above.
 | 3 | resolve_cancellation + resolve_service_credit | ✅ Done |
 | 4 | resolve_sla (deterministic half) | ✅ Done |
 | 5 | Document chunks (citation corpus) | ✅ Done |
-| 6 | RBAC (staff_users) + authorize() | ⬜ Not started |
+| 6 | RBAC (staff_users) + authorize() | ✅ Done |
 | 7 | query_operations_data + search_policy_documents tools | ⬜ Not started |
 | 8 | IncidentFacts extraction + severity mapping | ⬜ Not started |
 | 9 | Action layer (create_action/confirm_action) + audit log | ⬜ Not started |
@@ -149,17 +149,36 @@ Full architecture reasoning is in the design spec linked above.
   verified (19 total, 1 deprecated, 12 global, 4 Northstar, 3 LumenWorks),
   no cross-import with the resolver code. Reviewed clean, commit `0221648`.
 
+**2026-08-21 — Task 6: RBAC (staff_users) and authorize() ✅**
+
+- *Plain language:* the mock support-agent logins now exist, and there's
+  one single function every later piece of code will call to check "is
+  this person allowed to see this customer's data?" A security-focused
+  review traced the actual logic by hand (not just trusting "tests
+  passed") and confirmed it fails closed — an agent gets denied by
+  default unless explicitly listed for that account, with no hidden
+  bypass. One small follow-up: added a comment clarifying that the
+  manager's "all accounts" marker is only understood by the `authorize()`
+  check itself, so future code doesn't misread it.
+- *Technical:* `app/auth.py` — `staff_users` (Priya→Northstar+Axis,
+  Arjun→LumenWorks, Neha→Beacon, manager→all), `authorize(user,
+  account_id) -> bool` = `role=="manager" or account_id in
+  assigned_account_ids`. 22/22 tests passing, 1 fix round (clarifying
+  comment + typo + missing-user test), commits `0a7ac1c..ce1a219`.
+
 ## What's next
 
-**Task 6: RBAC (staff_users) and authorize()**
+**Task 7: query_operations_data and search_policy_documents tools**
 
-- *Plain language:* setting up the mock support-agent logins and the single
-  choke-point function that decides "is this person allowed to see this
-  customer's data?" — every later data-access function will call this
-  before doing anything else.
-- *Technical:* `app/auth.py` — `staff_users` table (Priya/Arjun/Neha, each
-  scoped to their assigned accounts, plus a manager role with full access),
-  `authorize(user, account_id) -> bool`.
+- *Plain language:* the two main "tools" the AI agent will actually call —
+  one for looking up real order/ticket/account records, one for finding
+  the right policy/contract text to cite — both of which check
+  authorization *first*, before touching any data, and both scoped so a
+  denied lookup never reveals whether a record even exists.
+- *Technical:* `app/tools.py` — `get_order`/`get_ticket`/`get_account`
+  (typed, authorization-gated) and `search_policy_documents` (SQL
+  prefilter + Python scenario-tag/keyword matching, per the corrected
+  retrieval algorithm from the spec).
 
 ---
 
