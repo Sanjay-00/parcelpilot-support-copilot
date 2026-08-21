@@ -54,3 +54,22 @@ def test_route_after_gather_denies_before_resolving():
 def test_route_after_severity_needs_review_on_unknown():
     assert _route_after_severity({"_severity": None, "_severity_needs_review": True}) == "needs_review"
     assert _route_after_severity({"_severity": "P2", "_severity_needs_review": False}) == "resolve_sla"
+
+
+from unittest.mock import patch
+
+from app.agent import _PlanExtraction
+
+
+def test_graph_executes_end_to_end_and_denies_unauthorized_access(conn):
+    _seed(conn)
+    arjun = get_user(conn, "arjun_rao")  # scoped to ACCT-002 only
+    with patch(
+        "app.agent._plan",
+        return_value=_PlanExtraction(scenario="cancellation", order_id="ORD-1001", ticket_id=None),
+    ):
+        state = run("some query text", arjun, conn)  # ORD-1001 belongs to ACCT-001
+
+    assert state["decision_status"] == "NEEDS_REVIEW"
+    assert state["authorization_result"] == "DENIED"
+    assert state.get("policy_decision") is None
