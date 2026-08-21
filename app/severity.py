@@ -90,7 +90,7 @@ def extract_incident_facts(subject: str, description: str) -> IncidentFacts:
     # response is still strictly validated against IncidentFacts below, so
     # correctness doesn't depend on Gemini's schema enforcement anyway.
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-2.5-flash",
         contents=_PROMPT.format(subject=subject, description=description),
         config={"response_mime_type": "application/json"},
     )

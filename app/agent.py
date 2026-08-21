@@ -53,7 +53,7 @@ def _plan(query: str) -> _PlanExtraction:
     # regardless, so correctness doesn't depend on Gemini enforcing it.
     client = genai.Client(api_key=config.require_gemini_api_key())
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-2.5-flash",
         contents=_PLAN_PROMPT.format(query=query),
         config={"response_mime_type": "application/json"},
     )
@@ -72,7 +72,7 @@ def _explain(query: str, decision, citations) -> str:
         f"If the decision's provenance shows an account-specific override, explain that it "
         f"takes precedence over the general policy/SOP."
     )
-    response = client.models.generate_content(model="gemini-3.6-flash", contents=prompt)
+    response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
     return response.text
 
 
