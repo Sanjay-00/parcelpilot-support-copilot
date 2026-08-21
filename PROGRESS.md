@@ -47,7 +47,7 @@ Full architecture reasoning is in the design spec linked above.
 | # | Task | Status |
 |---|------|--------|
 | 1 | Project scaffold, schema, workbook seed loader | ✅ Done |
-| 2 | account_policy_facts + typed data models | ⬜ Not started |
+| 2 | account_policy_facts + typed data models | ✅ Done |
 | 3 | resolve_cancellation + resolve_service_credit | ⬜ Not started |
 | 4 | resolve_sla (deterministic half) | ⬜ Not started |
 | 5 | Document chunks (citation corpus) | ⬜ Not started |
@@ -86,19 +86,34 @@ Full architecture reasoning is in the design spec linked above.
   (openpyxl -> SQLite, nullable booleans preserved via `_to_int_or_none`).
   3/3 tests passing, reviewed clean, commit `386084e`.
 
+**2026-08-21 — Task 2: account_policy_facts + typed data models ✅**
+
+- *Plain language:* Northstar's and LumenWorks' contract exceptions (no
+  cancellation fee ever, a fixed ₹300 credit instead of the usual formula,
+  faster response-time promises) are now stored as verified data, and every
+  later piece of code will pass around the same "shape" of order/ticket/
+  account/decision object instead of raw database rows. Tests prove both
+  halves of the key behavior: when a contract override exists, it's used
+  (with a note of exactly which contract/section it came from); when it
+  doesn't exist, the general policy default is used automatically instead.
+- *Technical:* `app/policy_facts.py` (12 hand-verified facts, `get_fact()`
+  with 5-arg signature `(conn, account_id, scenario, fact_name, default)`
+  returning `(value, Provenance)`), `app/models.py` (`Provenance`,
+  `AccountFacts`, `OrderFacts`, `TicketFacts` frozen dataclasses). 6/6 tests
+  passing, reviewed clean, commit `6bc57ae`.
+
 ## What's next
 
-**Task 2: account_policy_facts + typed data models**
+**Task 3: resolve_cancellation + resolve_service_credit**
 
-- *Plain language:* encode the two customer contracts' special terms
-  (e.g. "Northstar never pays a cancellation fee," "LumenWorks gets a fixed
-  ₹300 credit instead of the usual formula") as structured data, verified
-  by hand from the actual contract text — not guessed by the AI. Also
-  define the "shape" of the data every later piece of code will pass
-  around (an order, a ticket, an account, a decision).
-- *Technical:* `app/policy_facts.py` (hand-extracted facts + `get_fact()`
-  lookup with fallback-to-default semantics), `app/models.py` (`Provenance`,
-  `OrderFacts`, `TicketFacts`, `AccountFacts` dataclasses).
+- *Plain language:* the two resolver functions that decide the actual
+  cancellation fee and service-credit amount for a real order, using the
+  facts from Task 2 plus the order's own data (status, timing, fault
+  flags) — no AI involved in the decision itself.
+- *Technical:* `app/resolvers.py` (`resolve_cancellation`, `resolve_service_credit`),
+  `CancellationDecision`/`CreditDecision` dataclasses added to `app/models.py`,
+  golden-scenario tests covering ORD-1001/1002/2001/3001/4001 and the
+  unknown-fault / over-₹1,000-approval cases.
 
 ---
 
