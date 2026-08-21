@@ -1,0 +1,5 @@
+ass1/
+__pycache__/
+*.pyc
+.env
+parcelpilot.db
