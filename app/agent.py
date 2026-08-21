@@ -43,11 +43,19 @@ Answer as JSON: {{"scenario": "...", "order_id": "ORD-..." or null, "ticket_id":
 
 
 def _plan(query: str) -> _PlanExtraction:
+    # response_schema=_PlanExtraction deliberately NOT passed: pydantic
+    # translates the `str | None` fields into a JSON schema whose anyOf
+    # includes a `type: "null"` branch, and google-genai's Schema type
+    # rejects that ("Input should be 'TYPE_UNSPECIFIED', 'STRING', ...").
+    # Same class of schema-translation incompatibility hit in severity.py's
+    # extract_incident_facts. The prompt already spells out the JSON shape
+    # in text, and the response is validated against _PlanExtraction below
+    # regardless, so correctness doesn't depend on Gemini enforcing it.
     client = genai.Client(api_key=config.require_gemini_api_key())
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-3.6-flash",
         contents=_PLAN_PROMPT.format(query=query),
-        config={"response_mime_type": "application/json", "response_schema": _PlanExtraction},
+        config={"response_mime_type": "application/json"},
     )
     return _PlanExtraction.model_validate_json(response.text)
 
@@ -64,7 +72,7 @@ def _explain(query: str, decision, citations) -> str:
         f"If the decision's provenance shows an account-specific override, explain that it "
         f"takes precedence over the general policy/SOP."
     )
-    response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+    response = client.models.generate_content(model="gemini-3.6-flash", contents=prompt)
     return response.text
 
 
