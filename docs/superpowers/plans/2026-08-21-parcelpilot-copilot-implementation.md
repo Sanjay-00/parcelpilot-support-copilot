@@ -1633,9 +1633,10 @@ def _account_id_for_ticket(conn: sqlite3.Connection, ticket_id: str) -> str | No
 def get_order(conn: sqlite3.Connection, order_id: str, user: StaffUser) -> OrderFacts:
     owning_account = _account_id_for_order(conn, order_id)
     # Authorization is checked against the account the ID *would* belong to if it
-    # exists, or against the user's own scope if it doesn't — either way, a denial
-    # happens before we reveal whether the record exists.
-    check_account = owning_account or (user.assigned_account_ids[0] if user.role != "manager" and user.assigned_account_ids else None)
+    # exists; if it doesn't exist, a non-manager is denied outright (never told
+    # "not found," which would itself leak that the ID doesn't exist for other
+    # accounts) — either way, a denial happens before we reveal whether the
+    # record exists.
     if owning_account is not None and not authorize(user, owning_account):
         raise AccessDenied(f"Not authorized for account {owning_account}")
     if owning_account is None:
