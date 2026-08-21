@@ -33,7 +33,7 @@ def test_confirm_action_executes_and_writes_one_audit_row(conn):
     audit_count = conn.execute(
         "SELECT COUNT(*) FROM audit_logs WHERE action_id = ?", (draft.action_id,)
     ).fetchone()[0]
-    assert audit_count == 1
+    assert audit_count == 2
 
 
 def test_confirm_action_records_failed_not_executed_on_db_error():
@@ -75,7 +75,44 @@ def test_confirm_action_records_failed_not_executed_on_db_error():
     assert result.status == "FAILED"
     row = conn.execute("SELECT status FROM actions WHERE action_id = ?", (draft.action_id,)).fetchone()
     assert row["status"] == "FAILED"
-    audit_row = conn.execute(
-        "SELECT decision_json FROM audit_logs WHERE action_id = ?", (draft.action_id,)
-    ).fetchone()
-    assert "FAILED" in audit_row["decision_json"]
+    audit_rows = conn.execute(
+        "SELECT decision_json FROM audit_logs WHERE action_id = ? ORDER BY timestamp", (draft.action_id,)
+    ).fetchall()
+    assert len(audit_rows) == 2
+    assert "FAILED" in audit_rows[1]["decision_json"]
+
+
+def test_create_action_writes_one_audit_log_row(conn):
+    _seed(conn)
+    priya = get_user(conn, "priya_mehta")
+    draft = create_action(
+        conn, "create_escalation", "ACCT-001", ticket_id="TKT-501", order_id=None,
+        payload={"reason": "..."}, user=priya,
+    )
+    assert draft.status == "PREPARED"
+    audit_count = conn.execute(
+        "SELECT COUNT(*) FROM audit_logs WHERE action_id = ?", (draft.action_id,)
+    ).fetchone()[0]
+    assert audit_count == 1
+
+
+def test_confirm_action_raises_on_second_call(conn):
+    _seed(conn)
+    priya = get_user(conn, "priya_mehta")
+    draft = create_action(
+        conn, "create_escalation", "ACCT-001", ticket_id="TKT-501", order_id=None,
+        payload={"reason": "..."}, user=priya,
+    )
+    confirmed = confirm_action(conn, draft.action_id, priya)
+    assert confirmed.status == "EXECUTED"
+
+    try:
+        confirm_action(conn, draft.action_id, priya)
+        assert False, "Expected ValueError on second confirm"
+    except ValueError as e:
+        assert "already EXECUTED" in str(e)
+
+    audit_count = conn.execute(
+        "SELECT COUNT(*) FROM audit_logs WHERE action_id = ?", (draft.action_id,)
+    ).fetchone()[0]
+    assert audit_count == 2

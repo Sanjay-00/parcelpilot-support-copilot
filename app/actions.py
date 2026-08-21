@@ -23,6 +23,15 @@ def create_action(
         (action_id, action_type, account_id, ticket_id, order_id, json.dumps(payload), user.user_id, now),
     )
     conn.commit()
+
+    conn.execute(
+        "INSERT INTO audit_logs (log_id, timestamp, user, account_id, action_id, decision_json) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (f"LOG-{uuid.uuid4().hex[:8]}", now, user.user_id, account_id, action_id,
+         json.dumps({"final_status": "PREPARED"})),
+    )
+    conn.commit()
+
     return ActionDraft(action_id, action_type, account_id, "PREPARED")
 
 
@@ -32,6 +41,8 @@ def confirm_action(conn: sqlite3.Connection, action_id: str, user: StaffUser) ->
         raise LookupError(f"Action {action_id} not found")
     if not authorize(user, row["account_id"]):
         raise AccessDenied(f"Not authorized for account {row['account_id']}")
+    if row["status"] != "PREPARED":
+        raise ValueError(f"Action {action_id} is already {row['status']}, cannot confirm again")
 
     now = datetime.now(timezone.utc).isoformat()
     try:
