@@ -1,35 +1,79 @@
-<title>ParcelPilot AI Support Operations Copilot</title>
+<title>ParcelPilot Support Copilot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="/static/style.css">
+
 <div id="app">
-  <header>
-    <h1>ParcelPilot Support Copilot</h1>
-    <select id="user-select">
-      <option value="priya_mehta">Priya Mehta (Northstar, Axis)</option>
-      <option value="arjun_rao">Arjun Rao (LumenWorks)</option>
-      <option value="neha_kapoor">Neha Kapoor (Beacon)</option>
-      <option value="manager">Manager (all accounts)</option>
-    </select>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">PP</span>
+      <div class="brand-text">
+        <h1>ParcelPilot</h1>
+        <p>AI Support Operations Copilot</p>
+      </div>
+    </div>
+    <label class="user-picker">
+      <span>Logged in as</span>
+      <select id="user-select">
+        <option value="priya_mehta">Priya Mehta — Northstar, Axis</option>
+        <option value="arjun_rao">Arjun Rao — LumenWorks</option>
+        <option value="neha_kapoor">Neha Kapoor — Beacon</option>
+        <option value="manager">Manager — all accounts</option>
+      </select>
+    </label>
   </header>
-  <nav>
-    <button data-tab="investigate" class="active">Investigate</button>
-    <button data-tab="overview">Overview</button>
-    <button data-tab="audit">Actions / Audit</button>
+
+  <nav class="tabs">
+    <button data-tab="investigate" class="tab-btn active">Investigate</button>
+    <button data-tab="overview" class="tab-btn">Overview</button>
+    <button data-tab="audit" class="tab-btn">Actions &amp; Audit</button>
   </nav>
-  <section id="investigate" class="tab active">
-    <input id="query-input" placeholder="e.g. Can Northstar cancel ORD-1001 without a fee?">
-    <button id="ask-button">Ask</button>
-    <div id="tool-timeline"></div>
-    <div id="answer"></div>
-  </section>
-  <section id="overview" class="tab">
-    <h2>SLA Risk</h2>
-    <div id="sla-risk-list">Loading…</div>
-    <h2>Issue Clusters</h2>
-    <div id="issue-clusters-list">Loading…</div>
-  </section>
-  <section id="audit" class="tab">
-    <h2>Actions</h2>
-    <div id="actions-list">Loading…</div>
-  </section>
+
+  <main>
+    <section id="investigate" class="tab active">
+      <div class="ask-row">
+        <input id="query-input" type="text"
+               placeholder="e.g. Can Northstar cancel ORD-1001 without a cancellation fee?">
+        <button id="ask-button" class="btn-primary">Ask</button>
+      </div>
+
+      <div id="empty-state" class="empty-state">
+        <p>Ask a question about an order, ticket, or policy to get a cited, deterministic answer.</p>
+        <div class="example-chips">
+          <button class="chip" data-example="Can Northstar cancel ORD-1001 without a cancellation fee?">Cancellation fee for ORD-1001?</button>
+          <button class="chip" data-example="A previous ticket said Northstar pays a 250 rupee cancellation fee after 30 minutes for ORD-1001. Is that right?">Check a historical ticket claim</button>
+        </div>
+      </div>
+
+      <div id="result" class="result hidden">
+        <div id="tool-timeline" class="timeline"></div>
+        <div id="answer-card" class="answer-card">
+          <div class="answer-header">
+            <span id="status-badge" class="badge"></span>
+          </div>
+          <p id="answer" class="answer-text"></p>
+        </div>
+      </div>
+    </section>
+
+    <section id="overview" class="tab">
+      <div class="panel">
+        <h2>SLA Risk</h2>
+        <div id="sla-risk-list" class="stack">Loading…</div>
+      </div>
+      <div class="panel">
+        <h2>Issue Clusters</h2>
+        <div id="issue-clusters-list" class="stack">Loading…</div>
+      </div>
+    </section>
+
+    <section id="audit" class="tab">
+      <div class="panel">
+        <h2>Actions</h2>
+        <div id="actions-list" class="stack">Loading…</div>
+      </div>
+    </section>
+  </main>
 </div>
+
 <script src="/static/app.js"></script>
