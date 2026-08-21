@@ -67,3 +67,13 @@ class CreditDecision:
     needs_review: bool
     reason: str
     provenance: Provenance
+
+
+@dataclass(frozen=True)
+class SLADecision:
+    severity: str
+    target_minutes: int
+    elapsed_minutes: float
+    at_risk: bool
+    is_wall_clock_proxy: bool
+    provenance: Provenance

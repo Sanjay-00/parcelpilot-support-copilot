@@ -1,7 +1,9 @@
 import sqlite3
 from datetime import datetime
 
-from app.models import CancellationDecision, CreditDecision, OrderFacts, Provenance
+from app.models import (
+    AccountFacts, CancellationDecision, CreditDecision, OrderFacts, Provenance, SLADecision, TicketFacts
+)
 from app.policy_facts import get_fact
 
 
@@ -82,4 +84,34 @@ def resolve_service_credit(
         True, amount, amount > 1000, False,
         f"Carrier-fault delay exceeded {threshold_hours}h threshold; credit applies.",
         amount_prov,
+    )
+
+
+# Policy v3 §3 default first-response targets, in minutes.
+_PLAN_DEFAULTS_MINUTES = {
+    "Enterprise": {"P1": 30, "P2": 120, "P3": 1 * 24 * 60},
+    "Growth":     {"P1": 2 * 60, "P2": 4 * 60, "P3": 2 * 24 * 60},
+    "Standard":   {"P1": 4 * 60, "P2": 1 * 24 * 60, "P3": 2 * 24 * 60},
+}
+
+
+def resolve_sla(
+    conn: sqlite3.Connection, ticket: TicketFacts, account: AccountFacts,
+    severity: str, reference_time: datetime,
+) -> SLADecision:
+    target, target_prov = get_fact(conn, account.account_id, "sla", f"{severity.lower()}_target_minutes", default=None)
+    if target is None:
+        target = _PLAN_DEFAULTS_MINUTES[account.plan][severity]
+        target_prov = Provenance("global_default", "Policy v3", "§3")
+
+    coverage, _ = get_fact(conn, account.account_id, "sla", "coverage", default="24x7")
+    elapsed = (reference_time - ticket.created_at).total_seconds() / 60
+
+    return SLADecision(
+        severity=severity,
+        target_minutes=target,
+        elapsed_minutes=elapsed,
+        at_risk=elapsed > target,
+        is_wall_clock_proxy=(coverage == "business_hours"),
+        provenance=target_prov,
     )
