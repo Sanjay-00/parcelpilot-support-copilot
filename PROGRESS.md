@@ -46,7 +46,7 @@ Full architecture reasoning is in the design spec linked above.
 
 | # | Task | Status |
 |---|------|--------|
-| 1 | Project scaffold, schema, workbook seed loader | ⬜ Not started |
+| 1 | Project scaffold, schema, workbook seed loader | ✅ Done |
 | 2 | account_policy_facts + typed data models | ⬜ Not started |
 | 3 | resolve_cancellation + resolve_service_credit | ⬜ Not started |
 | 4 | resolve_sla (deterministic half) | ⬜ Not started |
@@ -67,20 +67,38 @@ Full architecture reasoning is in the design spec linked above.
 
 ## What we've built so far
 
-_(nothing yet — about to start Task 1)_
+**2026-08-21 — Task 1: Project scaffold, schema, workbook seed loader ✅**
+
+- *Plain language:* the project now has an empty database with the right
+  "shape" (7 tables), and code that reads the supplied Excel file straight
+  into three of them (accounts, orders, tickets). It also reads the "as-of"
+  timestamp from the workbook once, so every later calculation uses that
+  fixed, correct moment in time instead of whatever time it happens to run.
+  All 3 tests pass, confirming the data loaded correctly — including a
+  tricky detail: some fields (like "was the carrier at fault?") can be
+  genuinely *unknown*, not just true/false, and that distinction survived
+  the load correctly.
+- *Technical:* `app/schema.sql` (8 tables incl. RBAC/actions/audit, ahead of
+  need but all used by later tasks), `app/db.py` (`sqlite3` connection +
+  schema init, `PRAGMA foreign_keys=ON`), `app/config.py` (`REFERENCE_TIME`
+  parsed from the README sheet as `2026-08-16T11:00:00+05:30`, `GEMINI_API_KEY`
+  fails fast at import if unset), `app/seed_accounts_orders_tickets.py`
+  (openpyxl -> SQLite, nullable booleans preserved via `_to_int_or_none`).
+  3/3 tests passing, reviewed clean, commit `386084e`.
 
 ## What's next
 
-**Task 1: Project scaffold, schema, workbook seed loader**
+**Task 2: account_policy_facts + typed data models**
 
-- *Plain language:* set up the empty project, create the database tables
-  (empty at first), and write the code that reads the supplied Excel file
-  (accounts/orders/tickets) into those tables. Also reads the "as-of" time
-  from the workbook so every later calculation uses a fixed, correct
-  reference point instead of "right now."
-- *Technical:* `app/schema.sql`, `app/db.py`, `app/config.py` (including
-  `REFERENCE_TIME` parsed from the README sheet), `app/seed_accounts_orders_tickets.py`,
-  plus pytest tests confirming row counts and the reference time.
+- *Plain language:* encode the two customer contracts' special terms
+  (e.g. "Northstar never pays a cancellation fee," "LumenWorks gets a fixed
+  ₹300 credit instead of the usual formula") as structured data, verified
+  by hand from the actual contract text — not guessed by the AI. Also
+  define the "shape" of the data every later piece of code will pass
+  around (an order, a ticket, an account, a decision).
+- *Technical:* `app/policy_facts.py` (hand-extracted facts + `get_fact()`
+  lookup with fallback-to-default semantics), `app/models.py` (`Provenance`,
+  `OrderFacts`, `TicketFacts`, `AccountFacts` dataclasses).
 
 ---
 
