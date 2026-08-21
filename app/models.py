@@ -77,3 +77,13 @@ class SLADecision:
     at_risk: bool
     is_wall_clock_proxy: bool
     provenance: Provenance
+
+
+@dataclass(frozen=True)
+class Citation:
+    document_name: str
+    section: str
+    text: str
+    status: str
+    effective_date: str | None
+    customer_id: str | None
