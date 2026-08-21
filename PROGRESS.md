@@ -48,7 +48,7 @@ Full architecture reasoning is in the design spec linked above.
 |---|------|--------|
 | 1 | Project scaffold, schema, workbook seed loader | ✅ Done |
 | 2 | account_policy_facts + typed data models | ✅ Done |
-| 3 | resolve_cancellation + resolve_service_credit | ⬜ Not started |
+| 3 | resolve_cancellation + resolve_service_credit | ✅ Done |
 | 4 | resolve_sla (deterministic half) | ⬜ Not started |
 | 5 | Document chunks (citation corpus) | ⬜ Not started |
 | 6 | RBAC (staff_users) + authorize() | ⬜ Not started |
@@ -102,18 +102,34 @@ Full architecture reasoning is in the design spec linked above.
   `AccountFacts`, `OrderFacts`, `TicketFacts` frozen dataclasses). 6/6 tests
   passing, reviewed clean, commit `6bc57ae`.
 
+**2026-08-21 — Task 3: resolve_cancellation + resolve_service_credit ✅**
+
+- *Plain language:* the system can now correctly answer "what's the
+  cancellation fee?" and "does this order get a service credit?" for any
+  real order, using only fixed business rules — no AI guessing involved.
+  It correctly handles every order state (booked, picked up, delivered),
+  Northstar's full fee waiver, LumenWorks' custom credit terms, and refuses
+  to promise a credit when the data doesn't say whose fault a delay was.
+  A review caught one real issue before this was marked done: computed
+  credit amounts weren't being rounded to 2 decimal places (e.g. would
+  have shown ₹33.333 instead of ₹33.33) — fixed and covered by a test.
+- *Technical:* `app/resolvers.py` (`resolve_cancellation`,
+  `resolve_service_credit`), `CancellationDecision`/`CreditDecision` added
+  to `app/models.py`. 15/15 tests passing (5 cancellation + 4 credit + 6
+  earlier), reviewed with 1 fix round (money rounding), 4 minor polish
+  items deferred to a later pass, commits `c543000..e9b4f5f`.
+
 ## What's next
 
-**Task 3: resolve_cancellation + resolve_service_credit**
+**Task 4: resolve_sla (deterministic half)**
 
-- *Plain language:* the two resolver functions that decide the actual
-  cancellation fee and service-credit amount for a real order, using the
-  facts from Task 2 plus the order's own data (status, timing, fault
-  flags) — no AI involved in the decision itself.
-- *Technical:* `app/resolvers.py` (`resolve_cancellation`, `resolve_service_credit`),
-  `CancellationDecision`/`CreditDecision` dataclasses added to `app/models.py`,
-  golden-scenario tests covering ORD-1001/1002/2001/3001/4001 and the
-  unknown-fault / over-₹1,000-approval cases.
+- *Plain language:* the third resolver — figuring out how urgent a support
+  ticket is (P1/P2/P3) and whether it's at risk of breaching its response-
+  time target, given a severity that's already been decided elsewhere.
+- *Technical:* `app/resolvers.py` gains `resolve_sla`; `SLADecision` added
+  to `app/models.py`. Tests pass severity in directly (no AI call in this
+  task), covering Northstar's 24x7 override, LumenWorks' business-hours
+  caveat, and the Standard-plan default table.
 
 ---
 
