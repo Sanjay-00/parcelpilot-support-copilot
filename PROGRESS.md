@@ -52,7 +52,7 @@ Full architecture reasoning is in the design spec linked above.
 | 4 | resolve_sla (deterministic half) | ✅ Done |
 | 5 | Document chunks (citation corpus) | ✅ Done |
 | 6 | RBAC (staff_users) + authorize() | ✅ Done |
-| 7 | query_operations_data + search_policy_documents tools | ⬜ Not started |
+| 7 | query_operations_data + search_policy_documents tools | ✅ Done |
 | 8 | IncidentFacts extraction + severity mapping | ⬜ Not started |
 | 9 | Action layer (create_action/confirm_action) + audit log | ⬜ Not started |
 | 10 | LangGraph agent workflow | ⬜ Not started |
@@ -166,19 +166,42 @@ Full architecture reasoning is in the design spec linked above.
   assigned_account_ids`. 22/22 tests passing, 1 fix round (clarifying
   comment + typo + missing-user test), commits `0a7ac1c..ce1a219`.
 
+**2026-08-21 — Task 7: query_operations_data + search_policy_documents tools ✅**
+
+- *Plain language:* the AI agent's two main "tools" now exist — one to
+  look up real order/ticket/account records, one to find the right
+  policy/contract text to cite — and both check "is this person allowed
+  to see this?" before touching any data. A careful security review
+  caught a real, non-obvious bug here: when a user was denied access, the
+  error message for "this belongs to another customer" accidentally
+  included the real customer's account ID, while "this doesn't exist at
+  all" gave a generic message — meaning someone could tell the two cases
+  apart and effectively learn which customer owns an order ID they
+  weren't allowed to see. Fixed so both cases now give the exact same
+  message, with a test that directly checks the two messages are
+  byte-for-byte identical (not just "both denied").
+- *Technical:* `app/tools.py` — `get_order`/`get_ticket`/`get_account`
+  (typed, authorization-gated, no differential-message leak),
+  `search_policy_documents` (SQL prefilter for authorization/status only,
+  Python-side scenario-tag matching, keyword ranking that can never
+  escape the already-authorized set). 33/33 tests passing, 1 fix round
+  (the account-ID leak plus added test coverage for get_ticket/get_account),
+  2 minor items parked (an optional shared-helper refactor; a narrower,
+  non-exploitable message-consistency note), commits `4aca83b..c6bca24`.
+
 ## What's next
 
-**Task 7: query_operations_data and search_policy_documents tools**
+**Task 8: IncidentFacts extraction (Gemini) and deterministic severity mapping**
 
-- *Plain language:* the two main "tools" the AI agent will actually call —
-  one for looking up real order/ticket/account records, one for finding
-  the right policy/contract text to cite — both of which check
-  authorization *first*, before touching any data, and both scoped so a
-  denied lookup never reveals whether a record even exists.
-- *Technical:* `app/tools.py` — `get_order`/`get_ticket`/`get_account`
-  (typed, authorization-gated) and `search_policy_documents` (SQL
-  prefilter + Python scenario-tag/keyword matching, per the corrected
-  retrieval algorithm from the spec).
+- *Plain language:* teaching the system to read a support ticket's text
+  and work out how urgent it is (P1/P2/P3) — but split cleanly in two:
+  the AI reads the text and answers a handful of yes/no/unknown questions
+  ("is this a security incident?"), then plain code turns those answers
+  into a severity using the exact policy definitions. If the AI genuinely
+  can't tell, the ticket is flagged for human review instead of guessing.
+- *Technical:* `app/severity.py` — `IncidentFacts` (pydantic model, six
+  fields), `extract_incident_facts()` (the one Gemini call in this task),
+  `map_severity()` (pure Python, fully testable with zero network calls).
 
 ---
 
