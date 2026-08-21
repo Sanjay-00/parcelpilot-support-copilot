@@ -95,3 +95,11 @@ class StaffUser:
     name: str
     role: str                    # "agent" | "manager"
     assigned_account_ids: list
+
+
+@dataclass(frozen=True)
+class ActionDraft:
+    action_id: str
+    action_type: str
+    account_id: str
+    status: str
