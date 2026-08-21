@@ -49,3 +49,21 @@ class TicketFacts:
     assigned_to: str | None
     last_customer_message_at: datetime | None
     historical_resolution: str | None
+
+
+@dataclass(frozen=True)
+class CancellationDecision:
+    allowed: bool
+    fee_inr: float | None
+    reason: str
+    provenance: Provenance
+
+
+@dataclass(frozen=True)
+class CreditDecision:
+    eligible: bool
+    amount_inr: float | None
+    requires_manager_approval: bool
+    needs_review: bool
+    reason: str
+    provenance: Provenance
