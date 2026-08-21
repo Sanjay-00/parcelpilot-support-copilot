@@ -73,3 +73,14 @@ def confirm(body: ConfirmRequest):
     user = get_user(conn, body.user_id)
     result = confirm_action(conn, body.action_id, user)
     return {"status": result.status}
+
+
+@app.get("/api/actions")
+def list_actions(user_id: str):
+    from app.auth import authorize
+
+    conn = _get_seeded_connection()
+    user = get_user(conn, user_id)
+    rows = conn.execute("SELECT * FROM actions ORDER BY created_at DESC").fetchall()
+    visible = [dict(r) for r in rows if authorize(user, r["account_id"])]
+    return {"actions": visible}

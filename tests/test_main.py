@@ -45,6 +45,36 @@ def test_confirm_action_endpoint_executes_a_prepared_action(monkeypatch):
     assert response.json()["status"] == "EXECUTED"
 
 
+def test_list_actions_endpoint_scopes_by_authorization(monkeypatch):
+    import app.main as main_module
+    from app import db
+    from app.actions import create_action
+    from app.auth import get_user as _get_user, load as _load_users
+    from app.config import DATA_PACK_XLSX
+    from app.seed_accounts_orders_tickets import load as _load_base
+
+    conn = db.get_connection(":memory:")
+    db.init_schema(conn)
+    _load_base(conn, DATA_PACK_XLSX)
+    _load_users(conn)
+    priya = _get_user(conn, "priya_mehta")  # scoped to ACCT-001, ACCT-004
+    create_action(
+        conn, "create_escalation", "ACCT-001", ticket_id="TKT-501", order_id=None,
+        payload={"reason": "test"}, user=priya,
+    )
+
+    monkeypatch.setattr(main_module, "_get_seeded_connection", lambda: conn)
+    client = TestClient(app)
+
+    visible = client.get("/api/actions", params={"user_id": "priya_mehta"})
+    assert visible.status_code == 200
+    assert len(visible.json()["actions"]) == 1
+
+    not_visible = client.get("/api/actions", params={"user_id": "arjun_rao"})  # scoped to ACCT-002 only
+    assert not_visible.status_code == 200
+    assert len(not_visible.json()["actions"]) == 0
+
+
 import os
 
 import pytest
