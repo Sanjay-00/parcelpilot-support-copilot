@@ -87,3 +87,11 @@ class Citation:
     status: str
     effective_date: str | None
     customer_id: str | None
+
+
+@dataclass(frozen=True)
+class StaffUser:
+    user_id: str
+    name: str
+    role: str                    # "agent" | "manager"
+    assigned_account_ids: list
