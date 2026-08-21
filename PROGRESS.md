@@ -54,7 +54,7 @@ Full architecture reasoning is in the design spec linked above.
 | 6 | RBAC (staff_users) + authorize() | ✅ Done |
 | 7 | query_operations_data + search_policy_documents tools | ✅ Done |
 | 8 | IncidentFacts extraction + severity mapping | ✅ Done |
-| 9 | Action layer (create_action/confirm_action) + audit log | ⬜ Not started |
+| 9 | Action layer (create_action/confirm_action) + audit log | ✅ Done |
 | 10 | LangGraph agent workflow | ⬜ Not started |
 | 11 | Overview (SLA risk + issue clustering) | ⬜ Not started |
 | 12 | FastAPI app + UI | ⬜ Not started |
@@ -210,16 +210,36 @@ Full architecture reasoning is in the design spec linked above.
   live-Gemini tests skip cleanly without a key), 1 fix round, commits
   `7860230..816b1bc`.
 
+**2026-08-21 — Task 9: Action layer (create_action/confirm_action) + audit log ✅**
+
+- *Plain language:* the system can now actually prepare an action (like an
+  escalation) — but it only ever sits in a "prepared, waiting" state until
+  a human explicitly confirms it; nothing executes on its own. Two real
+  gaps were caught and fixed along the way: preparing an action wasn't
+  being logged to the audit trail at all (only confirming was), and there
+  was nothing stopping someone from "confirming" the same action twice,
+  which could have silently re-run it. Both are fixed, with tests proving
+  it. One test also needed a Python-version-specific fix (a testing
+  technique that stopped working on Python 3.12+) — caught and corrected.
+- *Technical:* `app/actions.py` — `create_action` (PREPARED-only, now
+  audited), `confirm_action` (PREPARED→EXECUTED/FAILED, rejects a second
+  confirm attempt, always writes exactly one audit row per call). 44/44
+  tests passing, 2 fix rounds, commits `b0891b7..ec8ba27`.
+
 ## What's next
 
-**Task 9: Action layer (create_action / confirm_action) + audit log**
+**Task 10: LangGraph agent workflow**
 
-- *Plain language:* the third required "tool" — actually doing something
-  (like creating an escalation), but only ever after a human explicitly
-  confirms it. Every step gets written to an audit trail.
-- *Technical:* `app/actions.py` — `create_action` (always lands in status
-  `PREPARED`, never takes effect on its own), `confirm_action`
-  (`PREPARED`→`EXECUTED`/`FAILED`, writes an `audit_logs` row every time).
+- *Plain language:* wiring everything built so far into one actual
+  conversation flow — a real branching workflow (not just a linear
+  script) that routes a support agent's question through identifying the
+  account, checking authorization, gathering evidence, computing the
+  right decision, and explaining it — with built-in "stop here" points
+  for denied access, missing records, or genuinely uncertain severity.
+- *Technical:* `app/agent.py` — a LangGraph `StateGraph` with nodes for
+  planning (Gemini), gathering (tools), resolving (the three deterministic
+  resolvers), severity classification, and explanation (Gemini), wired
+  with conditional edges rather than nested if/else.
 
 ---
 
