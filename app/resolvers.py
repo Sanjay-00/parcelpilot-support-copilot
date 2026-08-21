@@ -77,6 +77,7 @@ def resolve_service_credit(
         conn, order.account_id, "service_credit", "credit_amount_inr",
         default=min(500.0, 0.10 * (order.shipment_fee_inr or 0)),
     )
+    amount = round(amount, 2)
     return CreditDecision(
         True, amount, amount > 1000, False,
         f"Carrier-fault delay exceeded {threshold_hours}h threshold; credit applies.",

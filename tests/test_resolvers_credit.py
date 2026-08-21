@@ -73,3 +73,24 @@ def test_credit_over_1000_requires_manager_approval(conn):
     assert decision.eligible is True
     assert decision.amount_inr == 1500.0
     assert decision.requires_manager_approval is True
+
+
+def test_credit_amount_rounded_to_2dp(conn):
+    _seed(conn)
+    # Test that the default formula's computed amount (0.10 * shipment_fee_inr)
+    # is properly rounded to 2 decimal places. With shipment_fee_inr=333.33,
+    # the formula yields 0.10 * 333.33 = 33.333..., which must be rounded to 33.33.
+    order = OrderFacts(
+        order_id="ORD-7777", account_id="ACCT-004", carrier="RoadRunner",
+        status="BOOKED", booked_at=datetime(2026, 8, 16, 4, 30),
+        pickup_window_start=datetime(2026, 8, 16, 5, 30),
+        pickup_window_end=datetime(2026, 8, 16, 6, 30), pickup_actual_at=None,
+        shipment_fee_inr=333.33, carrier_fault=True, customer_fault=False,
+        cancellation_requested_at=None, notes="",
+    )
+    reference_time = datetime(2026, 8, 16, 11, 0, tzinfo=IST).replace(tzinfo=None)
+    decision = resolve_service_credit(conn, order, reference_time)
+    assert decision.eligible is True
+    # 0.10 * 333.33 = 33.333, rounded to 2dp = 33.33
+    assert decision.amount_inr == 33.33
+    assert decision.requires_manager_approval is False
