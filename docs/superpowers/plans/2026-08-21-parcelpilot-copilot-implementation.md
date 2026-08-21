@@ -2269,7 +2269,7 @@ Answer as JSON: {{"scenario": "...", "order_id": "ORD-..." or null, "ticket_id":
 
 
 def _plan(query: str) -> _PlanExtraction:
-    client = genai.Client(api_key=config.GEMINI_API_KEY)
+    client = genai.Client(api_key=config.require_gemini_api_key())
     response = client.models.generate_content(
         model="gemini-2.0-flash",
         contents=_PLAN_PROMPT.format(query=query),
@@ -2279,7 +2279,7 @@ def _plan(query: str) -> _PlanExtraction:
 
 
 def _explain(query: str, decision, citations) -> str:
-    client = genai.Client(api_key=config.GEMINI_API_KEY)
+    client = genai.Client(api_key=config.require_gemini_api_key())
     citation_text = "\n".join(f"- {c.document_name} {c.section}: {c.text}" for c in citations)
     prompt = (
         f"A support agent asked: {query}\n\n"
