@@ -11,11 +11,6 @@ DATA_PACK_DIR = os.path.join(BASE_DIR, "AI Agent Assessment - Candidate Pack")
 DB_PATH = os.path.join(BASE_DIR, "app", "parcelpilot.db")
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    raise RuntimeError(
-        "GEMINI_API_KEY is not set. Export it before starting the app, "
-        "e.g. `export GEMINI_API_KEY=your-key-here`."
-    )
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
