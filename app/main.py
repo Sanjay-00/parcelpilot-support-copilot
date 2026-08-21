@@ -1,14 +1,15 @@
+import json
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from app import config, db
 from app.actions import confirm_action
-from app.agent import run
+from app.agent import run, run_stream
 from app.auth import get_user, load as load_users
 from app.documents import load as load_docs
 from app.overview import issue_clusters, sla_risk_tickets
@@ -52,12 +53,36 @@ def investigate(body: InvestigateRequest):
     conn = _get_seeded_connection()
     user = get_user(conn, body.user_id)
     state = run(body.query, user, conn)
+    return _serialize_state(state)
+
+
+def _serialize_state(state: dict) -> dict:
     return {
         "answer_text": state.get("answer_text"),
         "tool_call_log": state.get("tool_call_log", []),
         "decision_status": state.get("decision_status"),
         "policy_decision": str(state.get("policy_decision")) if state.get("policy_decision") else None,
     }
+
+
+@app.post("/api/investigate/stream")
+def investigate_stream(body: InvestigateRequest):
+    # Same underlying agent as /api/investigate, but surfaces each LangGraph
+    # node as it genuinely completes (via run_stream) as a Server-Sent Event,
+    # so the UI can show real progress instead of one opaque multi-second
+    # wait. The final "done" event carries the same shape /api/investigate
+    # returns, so existing consumers of that shape aren't affected.
+    conn = _get_seeded_connection()
+    user = get_user(conn, body.user_id)
+
+    def event_stream():
+        for name, payload in run_stream(body.query, user, conn):
+            if name == "done":
+                yield f"event: done\ndata: {json.dumps(_serialize_state(payload))}\n\n"
+            else:
+                yield f"event: step\ndata: {json.dumps({'node': name, 'label': payload})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.get("/api/overview")

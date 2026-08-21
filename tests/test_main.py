@@ -45,6 +45,47 @@ def test_confirm_action_endpoint_executes_a_prepared_action(monkeypatch):
     assert response.json()["status"] == "EXECUTED"
 
 
+def test_investigate_stream_endpoint_emits_step_and_done_events(monkeypatch):
+    # Confirms the SSE endpoint's framing without needing a real Gemini call:
+    # both LLM-touching functions are mocked, so this exercises the real
+    # LangGraph node sequence and the real HTTP/SSE plumbing, deterministically.
+    from unittest.mock import patch
+
+    import app.main as main_module
+    from app import db
+    from app.agent import _PlanExtraction
+    from app.auth import load as _load_users
+    from app.config import DATA_PACK_XLSX
+    from app.policy_facts import load as _load_facts
+    from app.seed_accounts_orders_tickets import load as _load_base
+
+    conn = db.get_connection(":memory:")
+    db.init_schema(conn)
+    _load_base(conn, DATA_PACK_XLSX)
+    _load_facts(conn)
+    _load_users(conn)
+    monkeypatch.setattr(main_module, "_get_seeded_connection", lambda: conn)
+
+    with patch(
+        "app.agent._plan",
+        return_value=_PlanExtraction(scenario="cancellation", order_id="ORD-1001", ticket_id=None),
+    ), patch("app.agent._explain", return_value="Mocked answer."):
+        client = TestClient(app)
+        response = client.post(
+            "/api/investigate/stream",
+            json={"query": "Can Northstar cancel ORD-1001?", "user_id": "priya_mehta"},
+        )
+
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers["content-type"]
+    body = response.text
+    assert body.count("event: step") == 4  # plan, gather, resolve_order, explain
+    assert "fee_inr=0.0" in body  # Northstar's agreement override, not the SOP default
+    assert "event: done" in body
+    assert "Mocked answer." in body
+    assert "Understanding your question" in body
+
+
 def test_list_actions_endpoint_scopes_by_authorization(monkeypatch):
     import app.main as main_module
     from app import db

@@ -220,6 +220,42 @@ body {
   padding: 0.45rem 0.75rem;
 }
 
+.timeline .step-done {
+  color: var(--text);
+}
+
+.timeline .step-active {
+  color: var(--brand-dark);
+  border-color: var(--brand);
+  background: var(--brand-tint);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.timeline .step-active::after {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: auto;
+  border-radius: 50%;
+  border: 2px solid var(--brand);
+  border-top-color: transparent;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.btn-primary:disabled {
+  position: relative;
+}
+
 .timeline .step .icon { flex-shrink: 0; }
 
 .answer-card {

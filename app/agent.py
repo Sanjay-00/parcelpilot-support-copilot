@@ -302,3 +302,33 @@ def run(user_query: str, user: StaffUser, conn) -> AgentState:
             "reference_time": config.REFERENCE_TIME.replace(tzinfo=None),
         }},
     )
+
+
+# Friendly, honest step labels -- shown to the UI as each node genuinely
+# completes (via run_stream below), not a simulated/fake progress bar.
+NODE_LABELS = {
+    "plan": "🧠 Understanding your question…",
+    "gather": "🔍 Looking up records and policies…",
+    "resolve_order": "⚖️ Applying policy rules…",
+    "classify_severity": "🩺 Assessing ticket severity…",
+    "resolve_sla_step": "⚖️ Checking SLA targets…",
+    "severity_needs_review": "⚠️ Flagging for human review…",
+    "explain": "✍️ Writing the answer…",
+}
+
+
+def run_stream(user_query: str, user: StaffUser, conn):
+    """Yields (node_name, label) as each LangGraph node actually completes,
+    then a final ("done", AgentState) with the full result -- lets the UI
+    show real progress instead of a single opaque wait."""
+    initial_state: AgentState = {"user_query": user_query, "tool_call_log": []}
+    graph_config = {"configurable": {
+        "conn": conn, "user": user,
+        "reference_time": config.REFERENCE_TIME.replace(tzinfo=None),
+    }}
+    final_state: AgentState = dict(initial_state)
+    for update in _COMPILED_GRAPH.stream(initial_state, config=graph_config, stream_mode="updates"):
+        for node_name, node_output in update.items():
+            final_state.update(node_output)
+            yield node_name, NODE_LABELS.get(node_name, node_name)
+    yield "done", final_state

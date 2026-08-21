@@ -132,6 +132,25 @@ def test_order_found_but_scenario_ambiguous_needs_review(conn):
     assert "policy_decision" not in result
 
 
+def test_run_stream_yields_real_step_labels_then_done(conn):
+    from app.agent import run_stream
+
+    _seed(conn)
+    priya = get_user(conn, "priya_mehta")
+    with patch(
+        "app.agent._plan",
+        return_value=_PlanExtraction(scenario="cancellation", order_id="ORD-1001", ticket_id=None),
+    ), patch("app.agent._explain", return_value="Mocked answer."):
+        events = list(run_stream("Can Northstar cancel ORD-1001 without a fee?", priya, conn))
+
+    node_names = [name for name, _ in events]
+    assert node_names == ["plan", "gather", "resolve_order", "explain", "done"]
+
+    final_state = events[-1][1]
+    assert final_state["policy_decision"].fee_inr == 0
+    assert final_state["answer_text"] == "Mocked answer."
+
+
 @pytest.mark.skipif(not os.environ.get("GEMINI_API_KEY"), reason="requires GEMINI_API_KEY")
 def test_prompt_injection_attempt_is_treated_as_data_not_instructions(conn):
     _seed(conn)

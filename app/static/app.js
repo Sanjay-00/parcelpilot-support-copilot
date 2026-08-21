@@ -30,6 +30,16 @@ document.getElementById("query-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter") askQuestion();
 });
 
+function renderTimelineSteps(labels, { pulseLast = false } = {}) {
+  const timeline = document.getElementById("tool-timeline");
+  timeline.innerHTML = labels.map((label, i) => {
+    const isLast = i === labels.length - 1;
+    const cls = isLast && pulseLast ? "step step-active" : "step step-done";
+    const marker = isLast && pulseLast ? "" : "✓ ";
+    return `<div class="${cls}">${marker}${escapeHtml(label)}</div>`;
+  }).join("");
+}
+
 async function askQuestion() {
   const query = document.getElementById("query-input").value.trim();
   if (!query) return;
@@ -45,22 +55,62 @@ async function askQuestion() {
   askButton.textContent = "Thinking…";
   emptyState.classList.add("hidden");
   result.classList.remove("hidden");
-  timeline.innerHTML = `<div class="step"><span class="icon">⏳</span> Understanding your question…</div>`;
   answer.textContent = "";
   badge.textContent = "";
   badge.className = "badge";
+  const stepLabels = [];
+  renderTimelineSteps(["Sending your question…"], { pulseLast: true });
 
   try {
-    const res = await fetch("/api/investigate", {
+    const res = await fetch("/api/investigate/stream", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({query, user_id: currentUserId()}),
     });
-    const data = await res.json();
 
-    if (!res.ok) {
+    if (!res.ok || !res.body) {
       badge.textContent = "Error";
       badge.classList.add("error");
-      answer.textContent = data.detail || "Something went wrong.";
+      answer.textContent = "Something went wrong contacting the server.";
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalData = null;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let boundary;
+      while ((boundary = buffer.indexOf("\n\n")) >= 0) {
+        const rawEvent = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+
+        let eventType = "message";
+        let dataStr = "";
+        for (const line of rawEvent.split("\n")) {
+          if (line.startsWith("event: ")) eventType = line.slice(7);
+          else if (line.startsWith("data: ")) dataStr += line.slice(6);
+        }
+        if (!dataStr) continue;
+        const data = JSON.parse(dataStr);
+
+        if (eventType === "step") {
+          stepLabels.push(data.label);
+          renderTimelineSteps(stepLabels, { pulseLast: true });
+        } else if (eventType === "done") {
+          finalData = data;
+        }
+      }
+    }
+
+    if (!finalData) {
+      badge.textContent = "Error";
+      badge.classList.add("error");
+      answer.textContent = "The response stream ended unexpectedly.";
       return;
     }
 
@@ -68,14 +118,14 @@ async function askQuestion() {
       get_order: "📦", get_ticket: "🎫", get_account: "🏢",
       search_policy_documents: "📄",
     };
-    timeline.innerHTML = (data.tool_call_log || []).map(t =>
-      `<div class="step"><span class="icon">${icons[t.tool] || "🔍"}</span> ${escapeHtml(t.tool)}(${escapeHtml(t.args)})</div>`
-    ).join("") || `<div class="step"><span class="icon">💭</span> Answered from reasoning alone — no data lookup needed.</div>`;
+    timeline.innerHTML = (finalData.tool_call_log || []).map(t =>
+      `<div class="step step-done">✓ ${icons[t.tool] || "🔍"} ${escapeHtml(t.tool)}(${escapeHtml(t.args)})</div>`
+    ).join("") || `<div class="step step-done">✓ 💭 Answered from reasoning alone — no data lookup needed.</div>`;
 
-    const status = (data.decision_status || "").toLowerCase();
-    badge.textContent = data.decision_status || "—";
+    const status = (finalData.decision_status || "").toLowerCase();
+    badge.textContent = finalData.decision_status || "—";
     badge.classList.add(status === "ready" ? "ready" : "needs_review");
-    answer.textContent = data.answer_text || "(no answer text returned)";
+    answer.textContent = finalData.answer_text || "(no answer text returned)";
   } catch (err) {
     badge.textContent = "Error";
     badge.classList.add("error");
