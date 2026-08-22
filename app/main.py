@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from app import config, db
+from app import config, conversation, db
 from app.actions import confirm_action
 from app.agent import run, run_stream
 from app.auth import get_user, load as load_users
@@ -36,6 +36,7 @@ def _get_seeded_connection():
 class InvestigateRequest(BaseModel):
     query: str
     user_id: str
+    conversation_id: str | None = None
 
 
 class ConfirmRequest(BaseModel):
@@ -48,21 +49,74 @@ def index(request: Request):
     return templates.TemplateResponse(request, "index.html")
 
 
-@app.post("/api/investigate")
-def investigate(body: InvestigateRequest):
-    conn = _get_seeded_connection()
-    user = get_user(conn, body.user_id)
-    state = run(body.query, user, conn)
-    return _serialize_state(state)
+def _serialize_provenance(prov) -> dict | None:
+    if prov is None:
+        return None
+    return {
+        "origin": prov.origin,
+        "source_document": prov.source_document,
+        "source_section": prov.source_section,
+    }
+
+
+def _serialize_decision(decision) -> dict | None:
+    # Structured fields instead of a Python repr string -- the UI needs to
+    # render an amount/severity + authority badge, not parse `str(decision)`.
+    if decision is None:
+        return None
+    data: dict = {"kind": type(decision).__name__, "reason": getattr(decision, "reason", None)}
+    if hasattr(decision, "allowed"):  # CancellationDecision
+        data["allowed"] = decision.allowed
+        data["fee_inr"] = decision.fee_inr
+    if hasattr(decision, "eligible"):  # CreditDecision
+        data["eligible"] = decision.eligible
+        data["amount_inr"] = decision.amount_inr
+        data["requires_manager_approval"] = decision.requires_manager_approval
+    if hasattr(decision, "severity"):  # SLADecision
+        data["severity"] = decision.severity
+        data["target_minutes"] = decision.target_minutes
+        data["elapsed_minutes"] = decision.elapsed_minutes
+        data["at_risk"] = decision.at_risk
+        data["is_wall_clock_proxy"] = decision.is_wall_clock_proxy
+    data["provenance"] = _serialize_provenance(getattr(decision, "provenance", None))
+    return data
+
+
+def _serialize_citations(citations) -> list:
+    return [
+        {"document_name": c.document_name, "section": c.section, "text": c.text, "status": c.status}
+        for c in (citations or [])
+    ]
 
 
 def _serialize_state(state: dict) -> dict:
+    data_evidence = state.get("data_evidence") or {}
+    account = data_evidence.get("account") or data_evidence.get("account_only")
+    order = data_evidence.get("order")
+    ticket = data_evidence.get("ticket")
     return {
         "answer_text": state.get("answer_text"),
         "tool_call_log": state.get("tool_call_log", []),
         "decision_status": state.get("decision_status"),
-        "policy_decision": str(state.get("policy_decision")) if state.get("policy_decision") else None,
+        "policy_decision": _serialize_decision(state.get("policy_decision")),
+        "citations": _serialize_citations(state.get("doc_evidence")),
+        "context": {
+            "account_id": account.account_id if account else None,
+            "account_name": account.account_name if account else None,
+            "order_id": order.order_id if order else None,
+            "ticket_id": ticket.ticket_id if ticket else None,
+        },
+        "pending_action": state.get("pending_action"),
+        "conversation_id": state.get("conversation_id"),
     }
+
+
+@app.post("/api/investigate")
+def investigate(body: InvestigateRequest):
+    conn = _get_seeded_connection()
+    user = get_user(conn, body.user_id)
+    state = run(body.query, user, conn, conversation_id=body.conversation_id)
+    return _serialize_state(state)
 
 
 @app.post("/api/investigate/stream")
@@ -76,13 +130,48 @@ def investigate_stream(body: InvestigateRequest):
     user = get_user(conn, body.user_id)
 
     def event_stream():
-        for name, payload in run_stream(body.query, user, conn):
+        for name, payload in run_stream(body.query, user, conn, conversation_id=body.conversation_id):
             if name == "done":
                 yield f"event: done\ndata: {json.dumps(_serialize_state(payload))}\n\n"
             else:
                 yield f"event: step\ndata: {json.dumps({'node': name, 'label': payload})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.get("/api/conversations")
+def list_conversations(user_id: str):
+    # Session-scoped only: this reads the same in-memory store agent.py
+    # writes to, so the list is lost on process restart along with the
+    # conversations themselves. There is no separate persistence layer here.
+    convs = conversation.list_for_user(user_id)
+    return {
+        "conversations": [
+            {
+                "conversation_id": c.conversation_id,
+                "title": c.title or "New conversation",
+                "updated_at": c.updated_at,
+                "active_account_id": c.active_account_id,
+                "active_order_id": c.active_order_id,
+                "active_ticket_id": c.active_ticket_id,
+            }
+            for c in convs
+        ]
+    }
+
+
+@app.get("/api/conversations/{conversation_id}")
+def get_conversation(conversation_id: str, user_id: str):
+    # get() never creates -- a conversation_id that doesn't belong to this
+    # user_id simply isn't found, same isolation guarantee as investigate().
+    conv = conversation.get(user_id, conversation_id)
+    if conv is None:
+        return {"conversation_id": conversation_id, "found": False, "turns": []}
+    return {
+        "conversation_id": conversation_id,
+        "found": True,
+        "turns": [{"role": t.role, "text": t.text} for t in conv.turns],
+    }
 
 
 @app.get("/api/overview")
