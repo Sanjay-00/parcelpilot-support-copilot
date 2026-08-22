@@ -1,3 +1,4 @@
+import re
 import sqlite3
 
 from app.auth import authorize
@@ -34,14 +35,32 @@ def issue_clusters(conn: sqlite3.Connection, user: StaffUser) -> list:
     return [c for c in clusters if len(c["ticket_ids"]) >= 1]
 
 
+_STOPWORDS = {
+    "the", "and", "for", "are", "was", "were", "this", "that", "with", "have",
+    "has", "not", "but", "you", "your", "our", "their", "from", "when", "what",
+    "can", "could", "should", "would", "will", "any", "all", "some", "still",
+    "now", "get", "gets", "getting", "issue", "issues", "customer", "customers",
+    "opened", "resolved", "known", "product", "guide", "operations", "section",
+}
+_MIN_OVERLAP = 2
+
+
+def _significant_terms(text: str) -> set[str]:
+    # Naive plural/verb-form normalization (strip a trailing "s" on longer
+    # words) so "shipments"/"shipment", "failures"/"failure" etc. still match
+    # as the same term without a real stemmer.
+    words = re.findall(r"[a-zA-Z]+", text.lower())
+    normalized = (w[:-1] if len(w) >= 4 and w.endswith("s") else w for w in words)
+    return {w for w in normalized if len(w) >= 3 and w not in _STOPWORDS}
+
+
 def _keyword_overlap(ticket_text: str, chunk_text: str) -> bool:
-    # Simple, deterministic overlap check: does the ticket mention a distinctive
-    # noun phrase from the known-issue chunk? Reuses the same "keyword inside text"
-    # idea as search_policy_documents rather than introducing new matching logic.
-    ticket_words = set(ticket_text.lower().split())
-    distinctive_terms = ["bulk upload", "csv", "webhook", "booked", "swiftship"]
-    chunk_lower = chunk_text.lower()
-    return any(term in ticket_text.lower() and term in chunk_lower for term in distinctive_terms)
+    # Derives distinctive terms from the known-issue chunk's own text at match
+    # time rather than a hardcoded term list -- so this generalizes to any
+    # known-issue document the corpus is later given, not just today's two
+    # (KI-208 bulk upload, KI-211 webhook delay), without a code change.
+    overlap = _significant_terms(ticket_text) & _significant_terms(chunk_text)
+    return len(overlap) >= _MIN_OVERLAP
 
 
 def sla_risk_tickets(conn: sqlite3.Connection, user: StaffUser) -> list:

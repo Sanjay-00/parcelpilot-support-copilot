@@ -82,9 +82,15 @@ def get_account(conn: sqlite3.Connection, account_id: str, user: StaffUser) -> A
 
 
 def search_policy_documents(
-    conn: sqlite3.Connection, scenario: str, account_id: str | None, user: StaffUser,
+    conn: sqlite3.Connection, scenario: str | None, account_id: str | None, user: StaffUser,
     keyword: str | None = None,
 ) -> list[Citation]:
+    """scenario=None means "search the whole corpus" (any document type: policy,
+    SOP, product guide, known issues, agreements), ranked by keyword relevance
+    instead of gated by a fixed scenario tag -- this is what general/unclassified
+    support questions (e.g. "is bulk upload supported?", "known issue with
+    webhooks?") use, so the reasoning surface isn't limited to the handful of
+    scenario tags the deterministic resolvers happen to use."""
     if account_id is not None and not authorize(user, account_id):
         raise AccessDenied(f"Not authorized for account {account_id}")
 
@@ -93,11 +99,35 @@ def search_policy_documents(
         "AND (customer_id IS NULL OR customer_id = ?)", (account_id,)
     ).fetchall()
 
-    candidates = [r for r in rows if scenario in r["scenario_tags"].split(",")]
+    if scenario is not None:
+        candidates = [r for r in rows if scenario in r["scenario_tags"].split(",")]
+    else:
+        candidates = list(rows)
 
-    if keyword:
-        kw = keyword.lower()
-        candidates = sorted(candidates, key=lambda r: kw not in r["text"].lower())
+    # len(w) > 2 drops short filler words, but a short alphanumeric code like
+    # "p1" is meaningful and must survive -- the same rule _extract_keywords
+    # in agent.py applies before the keyword string ever reaches here.
+    words = (
+        [w for w in keyword.lower().split() if len(w) > 2 or any(ch.isdigit() for ch in w)]
+        if keyword else []
+    )
+
+    if scenario is None:
+        # No scenario tag to narrow the corpus, so relevance is the only filter.
+        # A single keyword hit is too weak a bar here: generic words like
+        # "policy" or "shipment" appear in nearly every chunk regardless of
+        # topic, which let a completely out-of-corpus question (e.g. cargo
+        # insurance) return unrelated citations instead of "no evidence."
+        # Require at least two distinct keyword hits on the same chunk.
+        if len(words) < 2:
+            return []
+        candidates = [
+            r for r in candidates
+            if sum(w in r["text"].lower() for w in words) >= 2
+        ]
+
+    if words:
+        candidates = sorted(candidates, key=lambda r: -sum(w in r["text"].lower() for w in words))
 
     candidates = sorted(candidates, key=lambda r: r["customer_id"] is None)
 
