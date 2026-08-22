@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .env
 parcelpilot.db
+*.stackdump
+.pytest_cache/
+AI Agent Assessment - Candidate Pack/
