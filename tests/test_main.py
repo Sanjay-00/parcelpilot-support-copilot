@@ -80,7 +80,7 @@ def test_investigate_stream_endpoint_emits_step_and_done_events(monkeypatch):
     assert "text/event-stream" in response.headers["content-type"]
     body = response.text
     assert body.count("event: step") == 4  # plan, gather, resolve_order, explain
-    assert "fee_inr=0.0" in body  # Northstar's agreement override, not the SOP default
+    assert '"fee_inr": 0.0' in body  # Northstar's agreement override, not the SOP default
     assert "event: done" in body
     assert "Mocked answer." in body
     assert "Understanding your question" in body
@@ -114,6 +114,47 @@ def test_list_actions_endpoint_scopes_by_authorization(monkeypatch):
     not_visible = client.get("/api/actions", params={"user_id": "arjun_rao"})  # scoped to ACCT-002 only
     assert not_visible.status_code == 200
     assert len(not_visible.json()["actions"]) == 0
+
+
+def test_conversations_list_and_get_are_scoped_per_user(monkeypatch):
+    import app.main as main_module
+    from app import conversation, db
+    from app.auth import load as _load_users
+    from app.config import DATA_PACK_XLSX
+    from app.seed_accounts_orders_tickets import load as _load_base
+
+    conn = db.get_connection(":memory:")
+    db.init_schema(conn)
+    _load_base(conn, DATA_PACK_XLSX)
+    _load_users(conn)
+    monkeypatch.setattr(main_module, "_get_seeded_connection", lambda: conn)
+
+    cid = conversation.new_conversation_id()
+    conv = conversation.get_or_create("priya_mehta", cid)
+    conversation.append_turn(conv, "user", "What are Northstar's cancellation fees?")
+    conversation.append_turn(conv, "assistant", "Some answer.")
+
+    client = TestClient(app)
+
+    listed = client.get("/api/conversations", params={"user_id": "priya_mehta"})
+    assert listed.status_code == 200
+    convs = listed.json()["conversations"]
+    assert any(c["conversation_id"] == cid for c in convs)
+    assert next(c for c in convs if c["conversation_id"] == cid)["title"] == "What are Northstar's cancellation fees?"
+
+    # A different user's listing must not include priya's conversation.
+    other_listed = client.get("/api/conversations", params={"user_id": "arjun_rao"})
+    assert not any(c["conversation_id"] == cid for c in other_listed.json()["conversations"])
+
+    fetched = client.get(f"/api/conversations/{cid}", params={"user_id": "priya_mehta"})
+    assert fetched.status_code == 200
+    body = fetched.json()
+    assert body["found"] is True
+    assert len(body["turns"]) == 2
+
+    # arjun_rao guessing priya's conversation_id must not retrieve her turns.
+    forged = client.get(f"/api/conversations/{cid}", params={"user_id": "arjun_rao"})
+    assert forged.json()["found"] is False
 
 
 import os

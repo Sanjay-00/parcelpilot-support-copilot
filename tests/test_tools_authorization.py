@@ -86,6 +86,28 @@ def test_authorized_account_lookup_succeeds(conn):
     assert account.account_id == "ACCT-001"
 
 
+def test_general_corpus_search_finds_product_and_known_issue_chunks(conn):
+    # scenario=None is the general_inquiry path: no fixed scenario tag to gate
+    # on, so relevance must come purely from keyword overlap across the WHOLE
+    # corpus (product guide, known issues, agreements, policy) -- proving this
+    # isn't limited to the cancellation/service_credit/sla tags.
+    _seed(conn)
+    priya = get_user(conn, "priya_mehta")
+    citations = search_policy_documents(conn, None, "ACCT-001", priya, keyword="bulk upload csv")
+    names = [c.document_name for c in citations]
+    assert "Product Operations Guide" in names
+    assert len(citations) > 0
+
+
+def test_general_corpus_search_returns_nothing_for_irrelevant_keyword(conn):
+    # Without a scenario tag to narrow the corpus, an unrelated keyword must
+    # not fall back to dumping the entire document set.
+    _seed(conn)
+    priya = get_user(conn, "priya_mehta")
+    citations = search_policy_documents(conn, None, "ACCT-001", priya, keyword="xylophone quantum")
+    assert citations == []
+
+
 def test_unauthorized_search_policy_documents_denied(conn):
     _seed(conn)
     arjun = get_user(conn, "arjun_rao")   # scoped to ACCT-002 only
