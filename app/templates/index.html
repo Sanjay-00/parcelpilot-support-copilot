@@ -1,79 +1,122 @@
 <title>ParcelPilot Support Copilot</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/static/style.css">
 
 <div id="app">
   <header class="topbar">
     <div class="brand">
-      <span class="brand-mark">PP</span>
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5v-7Z"/>
+          <path d="M3 6.5 10 10l7-3.5"/>
+          <line x1="10" y1="10" x2="10" y2="17"/>
+        </svg>
+      </span>
       <div class="brand-text">
         <h1>ParcelPilot</h1>
         <p>AI Support Operations Copilot</p>
       </div>
     </div>
-    <label class="user-picker">
-      <span>Logged in as</span>
+
+    <nav class="tabs">
+      <button data-tab="investigate" class="tab-btn active">Investigate</button>
+      <button data-tab="overview" class="tab-btn">Overview</button>
+      <button data-tab="audit" class="tab-btn">Actions &amp; Audit</button>
+    </nav>
+
+    <label class="user-pill">
+      <span class="user-avatar">PM</span>
       <select id="user-select">
-        <option value="priya_mehta">Priya Mehta — Northstar, Axis</option>
-        <option value="arjun_rao">Arjun Rao — LumenWorks</option>
-        <option value="neha_kapoor">Neha Kapoor — Beacon</option>
-        <option value="manager">Manager — all accounts</option>
+        <option value="priya_mehta">Priya Mehta · Northstar, Axis</option>
+        <option value="arjun_rao">Arjun Rao · LumenWorks</option>
+        <option value="neha_kapoor">Neha Kapoor · Beacon</option>
+        <option value="manager">Manager · all accounts</option>
       </select>
     </label>
   </header>
 
-  <nav class="tabs">
-    <button data-tab="investigate" class="tab-btn active">Investigate</button>
-    <button data-tab="overview" class="tab-btn">Overview</button>
-    <button data-tab="audit" class="tab-btn">Actions &amp; Audit</button>
-  </nav>
-
   <main>
     <section id="investigate" class="tab active">
-      <div class="ask-row">
-        <input id="query-input" type="text"
-               placeholder="e.g. Can Northstar cancel ORD-1001 without a cancellation fee?">
-        <button id="ask-button" class="btn-primary">Ask</button>
-      </div>
-
-      <div id="empty-state" class="empty-state">
-        <p>Ask a question about an order, ticket, or policy to get a cited, deterministic answer.</p>
-        <div class="example-chips">
-          <button class="chip" data-example="Can Northstar cancel ORD-1001 without a cancellation fee?">Cancellation fee for ORD-1001?</button>
-          <button class="chip" data-example="A previous ticket said Northstar pays a 250 rupee cancellation fee after 30 minutes for ORD-1001. Is that right?">Check a historical ticket claim</button>
-        </div>
-      </div>
-
-      <div id="result" class="result hidden">
-        <div id="tool-timeline" class="timeline"></div>
-        <div id="answer-card" class="answer-card">
-          <div class="answer-header">
-            <span id="status-badge" class="badge"></span>
+      <div class="investigate-layout">
+        <aside class="rail">
+          <button id="new-conversation-button" class="btn-primary rail-new"></button>
+          <div class="rail-section-label">Recent conversations</div>
+          <div id="recent-conversations" class="recent-conversations">
+            <p class="muted-note rail-empty-note">No conversations yet this session.</p>
           </div>
-          <p id="answer" class="answer-text"></p>
+        </aside>
+
+        <div class="chat-col">
+          <div id="empty-state" class="empty-state">
+            <p>Describe a support problem in plain English. No order IDs or account numbers required.</p>
+            <div class="example-chips">
+              <button class="chip" data-example="What are Northstar's cancellation fees?">What are Northstar's cancellation fees?</button>
+              <button class="chip" data-example="Can Northstar cancel ORD-1001 without a cancellation fee?">Can Northstar cancel ORD-1001?</button>
+              <button class="chip" data-example="A previous ticket said Northstar pays a 250 rupee cancellation fee after 30 minutes for ORD-1001. Is that right?">Check a historical ticket claim</button>
+            </div>
+          </div>
+
+          <div id="chat-log" class="chat-log"></div>
+
+          <div class="ask-row">
+            <input id="query-input" type="text"
+                   placeholder="Describe the problem, e.g. &quot;the customer's pickup was 3 hours late, do we owe them anything?&quot;">
+            <button id="ask-button" class="btn-primary"></button>
+          </div>
         </div>
+
+        <aside class="context-panel" id="context-panel">
+          <div class="context-panel-inner">
+            <div id="ctx-empty" class="muted-note ctx-empty-note">Ask a question to see the investigation trail, policy decision, and evidence here.</div>
+
+            <div id="ctx-summary-section" class="ctx-section hidden">
+              <h2>Investigation Summary</h2>
+              <div id="ctx-timeline" class="timeline"></div>
+            </div>
+
+            <div id="ctx-decision-section" class="ctx-section hidden">
+              <h2>Policy Decision</h2>
+              <div id="ctx-decision"></div>
+            </div>
+
+            <div id="ctx-evidence-section" class="ctx-section hidden">
+              <h2>Key Evidence</h2>
+              <div id="ctx-evidence" class="evidence-list"></div>
+            </div>
+
+            <div id="ctx-next-steps-section" class="ctx-section next-steps-callout hidden">
+              <h2>Suggested Next Step</h2>
+              <div id="ctx-next-steps" class="next-steps"></div>
+            </div>
+          </div>
+        </aside>
       </div>
     </section>
 
     <section id="overview" class="tab">
-      <div class="panel">
-        <h2>SLA Risk</h2>
-        <div id="sla-risk-list" class="stack">Loading…</div>
-      </div>
-      <div class="panel">
-        <h2>Issue Clusters</h2>
-        <div id="issue-clusters-list" class="stack">Loading…</div>
+      <div class="narrow-col">
+        <div class="panel">
+          <h2>SLA Risk</h2>
+          <div id="sla-risk-list" class="stack">Loading…</div>
+        </div>
+        <div class="panel">
+          <h2>Issue Clusters</h2>
+          <div id="issue-clusters-list" class="stack">Loading…</div>
+        </div>
       </div>
     </section>
 
     <section id="audit" class="tab">
-      <div class="panel">
-        <h2>Actions</h2>
-        <div id="actions-list" class="stack">Loading…</div>
+      <div class="narrow-col">
+        <div class="panel">
+          <h2>Actions</h2>
+          <div id="actions-list" class="stack">Loading…</div>
+        </div>
       </div>
     </section>
   </main>
 </div>
 
+<script src="/static/icons.js"></script>
 <script src="/static/app.js"></script>
