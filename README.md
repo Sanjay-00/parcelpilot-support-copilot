@@ -60,7 +60,9 @@ flowchart LR
 
 ## Hosted demo
 
-`<add your Render/Railway/Fly.io URL here after deploying>`
+**[https://parcelpilot-support-copilot-zv90.onrender.com/](https://parcelpilot-support-copilot-zv90.onrender.com/)**
+
+Free-tier hosting: the first request after a period of inactivity can take 30-60 seconds to wake up (cold start). Give it a moment before assuming something's wrong.
 
 ## Deploying (Render)
 
