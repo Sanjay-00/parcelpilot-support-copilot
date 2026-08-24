@@ -44,7 +44,7 @@ flowchart LR
     resolvers --> db
 ```
 
-See [`docs/ARCHITECTURE_NOTE.md`](docs/ARCHITECTURE_NOTE.md) for the full agent workflow diagram, tool design, and source-reliability handling. See [`docs/PRODUCT_NOTE.md`](docs/PRODUCT_NOTE.md) for product decisions and what was left out. See [`docs/AI_TOOL_USAGE.md`](docs/AI_TOOL_USAGE.md) for AI tool usage disclosure. See [`docs/SCALE.md`](docs/SCALE.md) for how this architecture would evolve at 100x and 1000x the current data size.
+See [`docs/ARCHITECTURE_NOTE.md`](docs/ARCHITECTURE_NOTE.md) for the full agent workflow diagram, tool design, and source-reliability handling. See [`docs/PRODUCT_NOTE.md`](docs/PRODUCT_NOTE.md) for product decisions and what was left out. See [`docs/AI_TOOL_USAGE.md`](docs/AI_TOOL_USAGE.md) for AI tool usage disclosure. See [`docs/SCALE.md`](docs/SCALE.md) for how this architecture would evolve at 100x and 1000x the current data size. See [`docs/POLICY_UPDATES.md`](docs/POLICY_UPDATES.md) for how to actually update a policy or add a vendor on a live deployment.
 
 ## Hosted demo
 
