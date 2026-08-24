@@ -522,3 +522,60 @@ def test_search_general_inquiry_respects_llm_empty_selection_as_a_real_answer(co
 
     mock_select.assert_called_once()
     assert citations == []
+
+
+# --- Answer text cleanup and empty-response fallback ------------------------
+
+from app.agent import _clean_answer_text, _generate_answer_text
+
+
+def test_clean_answer_text_normalizes_inline_asterisk_bullets_to_own_lines():
+    # Real failure mode: the model ignores the "- " bullet instruction and
+    # crams several "* " markdown bullets onto one line instead of
+    # newline-separating them. The frontend's list renderer only recognizes a
+    # line that STARTS with "- ", so this must become one bullet per line.
+    raw = (
+        "You can cancel depending on status. * DRAFT: no fee. "
+        "* BOOKED before pickup: no fee within 30 minutes. * PICKED_UP: cannot cancel."
+    )
+    cleaned = _clean_answer_text(raw)
+    lines = [l for l in cleaned.split("\n") if l.strip()]
+    assert lines[0] == "You can cancel depending on status."
+    assert lines[1] == "- DRAFT: no fee."
+    assert lines[2] == "- BOOKED before pickup: no fee within 30 minutes."
+    assert lines[3] == "- PICKED_UP: cannot cancel."
+
+
+def test_clean_answer_text_still_strips_bold_and_section_symbols():
+    cleaned = _clean_answer_text("**Bold** text citing §1 Scope — done.")
+    assert "**" not in cleaned
+    assert "§" not in cleaned
+    assert "Section 1" in cleaned
+
+
+def test_generate_answer_text_falls_back_when_model_returns_empty_string():
+    # A crash (exception) is already handled elsewhere in the codebase; this
+    # is the other failure mode -- the call succeeds but response.text is an
+    # empty string (e.g. a safety-filtered or otherwise degraded candidate).
+    # Without this fallback the user sees a READY badge next to literally no
+    # text, which is worse than an honest "couldn't generate this" message.
+    fake_response = type("R", (), {"text": ""})()
+    with patch("app.agent.config.require_gemini_api_key", return_value="test-key"), \
+         patch("app.agent.genai.Client") as mock_client_cls:
+        mock_client_cls.return_value.models.generate_content.return_value = fake_response
+        answer = _generate_answer_text("some prompt")
+
+    assert answer.strip() != ""
+    assert "couldn't" in answer.lower() or "could not" in answer.lower()
+
+
+def test_generate_answer_text_passes_through_real_content_unchanged_in_shape():
+    fake_response = type("R", (), {"text": "Yes, no fee applies. * Reason one. * Reason two."})()
+    with patch("app.agent.config.require_gemini_api_key", return_value="test-key"), \
+         patch("app.agent.genai.Client") as mock_client_cls:
+        mock_client_cls.return_value.models.generate_content.return_value = fake_response
+        answer = _generate_answer_text("some prompt")
+
+    assert answer.startswith("Yes, no fee applies.")
+    assert "- Reason one." in answer
+    assert "- Reason two." in answer

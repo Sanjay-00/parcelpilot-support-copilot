@@ -144,7 +144,36 @@ def _clean_answer_text(text: str) -> str:
     text = text.replace("**", "")
     text = text.replace("—", " - ").replace("–", " - ")
     text = text.replace("§", "Section ")
-    return text
+    # The model is instructed to put each bullet on its own line starting
+    # with "- ", but sometimes uses a markdown "* " bullet instead, and
+    # sometimes crams several of them onto one line rather than
+    # newline-separating them (e.g. "Sentence. * Item one. * Item two.").
+    # The frontend's list renderer only recognizes a line that STARTS with
+    # "- ", so an inline "* " silently renders as one unbroken paragraph
+    # instead of a list -- normalize every "* " marker to its own "- " line
+    # regardless of how the model actually separated them.
+    text = re.sub(r"\s*\*\s+", "\n- ", text)
+    return text.strip()
+
+
+_EMPTY_RESPONSE_FALLBACK = (
+    "I found relevant information but couldn't generate a clear explanation "
+    "for this just now. Please try rephrasing the question, or check the "
+    "evidence shown alongside this answer."
+)
+
+
+def _generate_answer_text(prompt: str) -> str:
+    """Shared tail for _explain/_explain_from_documents_only: call the model,
+    clean the text, and never surface a blank answer. response.text can come
+    back as an empty string (not an exception -- no crash, no retry) on a
+    degraded model response, e.g. a safety-filtered or otherwise empty
+    candidate; without this, the caller silently returns "" and the user
+    sees a badge that says READY next to literally no text."""
+    client = genai.Client(api_key=config.require_gemini_api_key())
+    response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+    cleaned = _clean_answer_text(response.text or "")
+    return cleaned if cleaned else _EMPTY_RESPONSE_FALLBACK
 
 
 _ANSWER_FORMAT_INSTRUCTION = (
@@ -182,7 +211,6 @@ def _historical_note_block(historical_note: str | None) -> str:
 
 
 def _explain(query: str, decision, citations, historical_note: str | None = None) -> str:
-    client = genai.Client(api_key=config.require_gemini_api_key())
     citation_text = "\n".join(f"- {c.document_name} {c.section}: {c.text}" for c in citations)
     prompt = (
         f"The deterministic decision below (already computed -- do not recompute, "
@@ -203,8 +231,7 @@ def _explain(query: str, decision, citations, historical_note: str | None = None
         f"in the bullet list that it takes precedence over the general policy/SOP.\n\n"
         f"{_ANSWER_FORMAT_INSTRUCTION}"
     )
-    response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-    return _clean_answer_text(response.text)
+    return _generate_answer_text(prompt)
 
 
 def _structured_context_block(order, ticket) -> str:
@@ -241,7 +268,6 @@ def _explain_from_documents_only(
     # cancellation fees?") where there's no specific order/ticket to compute
     # a decision against -- explains directly from the retrieved policy/
     # agreement text, never inventing a number or rule not present in it.
-    client = genai.Client(api_key=config.require_gemini_api_key())
     citation_text = "\n".join(f"- {c.document_name} {c.section}: {c.text}" for c in citations)
     prompt = (
         f"Answer a support question using ONLY the policy/contract text below -- do "
@@ -262,8 +288,7 @@ def _explain_from_documents_only(
         f"that it takes precedence over the general policy/SOP.\n\n"
         f"{_ANSWER_FORMAT_INSTRUCTION}"
     )
-    response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-    return _clean_answer_text(response.text)
+    return _generate_answer_text(prompt)
 
 
 def plan_node(state: AgentState, config: dict) -> dict:

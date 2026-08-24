@@ -361,6 +361,9 @@ async function askQuestion() {
   turn.innerHTML = `
     <div class="chat-bubble user">${escapeHtml(query)}</div>
     <div class="chat-bubble assistant">
+      <div class="thinking-indicator">
+        <div class="step step-active">${icon("search")}<span class="thinking-label">Understanding your question&hellip;</span></div>
+      </div>
       <div class="answer-card hidden">
         <div class="answer-header"><span class="badge"></span></div>
         <div class="answer-text"></div>
@@ -370,9 +373,16 @@ async function askQuestion() {
   chatLog.appendChild(turn);
   chatLog.scrollTop = chatLog.scrollHeight;
 
+  const thinkingIndicator = turn.querySelector(".thinking-indicator");
+  const thinkingLabel = turn.querySelector(".thinking-label");
   const answerCard = turn.querySelector(".answer-card");
   const answerEl = turn.querySelector(".answer-text");
   const badge = turn.querySelector(".badge");
+
+  // Swaps the inline "thinking" trail for the real answer/error content --
+  // called from every exit path below (success, stream error, network
+  // failure) so the bubble never gets stuck showing a stale in-progress step.
+  const stopThinking = () => thinkingIndicator.classList.add("hidden");
 
   askButton.disabled = true;
   askButton.innerHTML = `${icon("search")}<span>Thinking…</span>`;
@@ -386,6 +396,7 @@ async function askQuestion() {
     });
 
     if (!res.ok || !res.body) {
+      stopThinking();
       answerCard.classList.remove("hidden");
       badge.textContent = "Error"; badge.className = "badge error";
       answerEl.textContent = "Something went wrong contacting the server.";
@@ -418,6 +429,7 @@ async function askQuestion() {
 
         if (eventType === "step") {
           stepLabels.push(data.label);
+          thinkingLabel.textContent = data.label;
           renderContextTimeline(stepLabels, { pulseLast: true });
         } else if (eventType === "done") {
           finalData = data;
@@ -427,12 +439,15 @@ async function askQuestion() {
     }
 
     if (!finalData) {
+      stopThinking();
       answerCard.classList.remove("hidden");
       badge.textContent = "Error"; badge.className = "badge error";
       answerEl.textContent = "The response stream ended unexpectedly.";
       renderContextTimeline(stepLabels, { pulseLast: false });
       return;
     }
+
+    stopThinking();
 
     if (finalData.conversation_id) conversationId = finalData.conversation_id;
 
@@ -459,6 +474,7 @@ async function askQuestion() {
     badge.className = `badge ${badgeClassFor(finalData.decision_status)}`;
     answerEl.innerHTML = finalData.answer_text ? renderAnswerHtml(finalData.answer_text) : "<p>(no answer text returned)</p>";
   } catch (err) {
+    stopThinking();
     answerCard.classList.remove("hidden");
     badge.textContent = "Error"; badge.className = "badge error";
     answerEl.textContent = "Could not reach the server. Is it running?";
