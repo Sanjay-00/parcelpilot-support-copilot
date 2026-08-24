@@ -1,4 +1,6 @@
 ass1/
+AGENTS.md
+docs/STUDY.md
 __pycache__/
 *.pyc
 .env
