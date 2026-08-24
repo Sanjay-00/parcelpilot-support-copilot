@@ -320,3 +320,109 @@ actually requires it. A semantic layer and a reranker are real
 infrastructure with real maintenance cost, and adding them at Tier 0 scale
 would be solving a problem that does not exist yet at the cost of a
 problem that does, keeping a small, correct system simple.
+
+## Keeping policy config in sync as the document set changes
+
+Everything above is about *volume*: more documents, more tables. This
+section is about a different axis entirely: *change over time*. Policies
+get updated. The question is what happens to the system's actual computed
+answers when that happens, and whether that scales past a human reading
+every diff by hand.
+
+### Why this isn't "just re-embed it" (a RAG detour worth being explicit about)
+
+A natural instinct: if this were a pure RAG system, updating a policy
+would be as simple as re-embedding the changed document. New text goes
+into the vector store, the next query retrieves the new version instead
+of the old one, done. That's a fair description of what RAG solves, and
+it's exactly why this system already uses an LLM-based, RAG-adjacent
+technique for retrieval and explanation (`app/agent.py::_select_chunks_llm`)
+and why `Tier 2` above calls for real embeddings once the corpus outgrows
+one prompt.
+
+But RAG's "auto-update" property only solves *serving the current text*.
+It says nothing about whether the model, having retrieved the correct
+text, computes the correct number from it every time. Those are different
+failure modes. Concretely, in this exact data pack: LumenWorks' service
+credit threshold is 4 hours; the default SOP threshold is 2 hours. A
+question like "pickup was 3 hours late, do I get a credit?" requires
+correctly recognizing that a signed agreement overrides the general SOP,
+picking the right threshold (4h, not 2h), and concluding "no credit"
+(3 < 4) -- the opposite of what the default policy alone would say. Asking
+a model to do that reasoning fresh, from retrieved prose, on every call,
+has non-zero variance: reword the question, and there is no guarantee the
+precedence and the arithmetic come out the same way twice. A deterministic
+resolver (`resolve_service_credit`) makes that the same answer every time,
+provably, via a unit test (see `tests/test_resolvers_credit.py`). RAG is
+the right tool for "find and explain the relevant text." It is the wrong
+tool for "compute a financially or legally exact decision from it," and
+that distinction doesn't change at any scale -- more embeddings make
+retrieval better, not the model's arithmetic more reliable. This is why
+`app/policy_config.py` exists as a separate, versioned, human-maintained
+artifact from `app/documents.py`'s citation chunks, rather than the
+resolvers reading numbers out of retrieved text at answer-time.
+
+### The gap this creates, and why it doesn't auto-solve itself
+
+Because the config and the citation text are separate artifacts, nothing
+stops them drifting apart: someone updates the SOP PDF and the chunk text
+in `app/documents.py`, forgets `app/policy_config.py`, and the system now
+*cites* one number while *computing* a different one. At today's size (a
+handful of documents), `tests/test_policy_config_drift.py` catches this by
+mechanically extracting the numbers straight out of the chunk text and
+asserting they match the config -- cheap, and enough at this scale.
+
+### At 100 documents changing at once
+
+A one-by-one review process (open a diff, read it, approve it) doesn't
+survive a batch update -- ingestion has to be a scheduled batch job, not
+100 real-time interrupts, producing one prioritized review queue (a fee or
+SLA change ranked above a wording fix) rather than 100 separate ones.
+Nothing goes live piecemeal; each change is staged (`draft -> pending
+review -> approved -> live`), the same shape as this app's own action
+lifecycle (`PREPARED -> EXECUTED`).
+
+### At 10,000 documents, with 10 fully rewritten and hundreds only reworded
+
+This is the case where a plain text-diff breaks down, and it's worth being
+concrete about why. A text diff would flag all ~110 changed documents as
+needing review -- including the hundreds where only phrasing moved and not
+a single number did. At this volume, that flood of false positives is
+worse than no review process: reviewers start rubber-stamping, which
+defeats the point.
+
+The fix is to diff at the *fact* level, not the text level:
+
+1. For every re-ingested document, run the same structured-fact-extraction
+   used to build `app/policy_config.py` and `app/policy_facts.py` --
+   pull out the actual computable values, not the surrounding prose.
+2. Compare extracted facts against what's currently live, fact by fact,
+   not document by document.
+3. A document where every extracted fact matches what's already live gets
+   auto-classified as "citation refresh only": the new wording replaces
+   the old chunk text for explanation purposes, but no resolver or config
+   value changes, and no human review is needed for the computational
+   side. This is the case for most of the hundreds of reworded documents.
+4. A document where an extracted fact differs -- or where the rewrite is
+   too structurally different from the old version to map cleanly at all
+   -- routes to a human, who is shown the specific facts that changed, not
+   asked to re-read the whole document. This is both of: the 10 full
+   rewrites, and any of the "reworded" documents that turn out to have
+   snuck in a real change disguised as a wording tweak.
+
+The one property this depends on: when extraction confidence is low, or a
+rewrite can't be mapped section-to-section reliably, the system must
+default to "flag as changed," never "assume unchanged." A false positive
+costs one wasted review. A false negative -- silently deciding "wording
+only" when a number actually moved -- is the dangerous failure, and it's
+the same "don't guess, escalate" principle already in `resolve_service_credit`
+(refuses to guess when `carrier_fault` is unknown). The fact-diff engine
+has to inherit that same bias toward caution, not toward throughput.
+
+This entire pipeline is deliberately **not implemented** in this
+submission -- there's no way to demonstrate it meaningfully against 6
+documents, and building unexercised infrastructure for a scale this app
+doesn't operate at would be solving a problem that doesn't exist yet, the
+same argument the closing note above already makes about Tier 2/3. It's
+documented here because the reasoning is real and the trade-off is worth
+being explicit about, not because the code should exist today.

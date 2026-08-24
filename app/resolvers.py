@@ -1,15 +1,18 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.models import (
     AccountFacts, CancellationDecision, CreditDecision, OrderFacts, Provenance, SLADecision, TicketFacts
 )
+from app.policy_config import CURRENT as POLICY
 from app.policy_facts import get_fact
 
 
 def resolve_cancellation(conn: sqlite3.Connection, order: OrderFacts) -> CancellationDecision:
     sop_provenance = Provenance(
-        origin="global_default", source_document="SOP v4", source_section="§1"
+        origin="global_default",
+        source_document=POLICY.cancellation.source_document,
+        source_section=POLICY.cancellation.source_section,
     )
 
     if order.status == "DRAFT":
@@ -34,11 +37,12 @@ def resolve_cancellation(conn: sqlite3.Connection, order: OrderFacts) -> Cancell
         )
 
     age = order.cancellation_requested_at - order.booked_at
-    fee = 0.0 if age <= __import__("datetime").timedelta(minutes=30) else 250.0
+    grace = POLICY.cancellation.grace_minutes
+    fee = 0.0 if age <= timedelta(minutes=grace) else POLICY.cancellation.fee_inr
     reason = (
-        "Cancelled within 30 minutes of booking; no fee per SOP v4."
+        f"Cancelled within {grace} minutes of booking; no fee per SOP v4."
         if fee == 0.0 else
-        "Cancelled more than 30 minutes after booking; ₹250 fee per SOP v4."
+        f"Cancelled more than {grace} minutes after booking; ₹{fee:g} fee per SOP v4."
     )
     return CancellationDecision(True, fee, reason, sop_provenance)
 
@@ -47,7 +51,9 @@ def resolve_service_credit(
     conn: sqlite3.Connection, order: OrderFacts, reference_time: datetime
 ) -> CreditDecision:
     sop_provenance = Provenance(
-        origin="global_default", source_document="SOP v4", source_section="§2"
+        origin="global_default",
+        source_document=POLICY.service_credit.source_document,
+        source_section=POLICY.service_credit.source_section,
     )
     uncertainty_provenance = Provenance(
         origin="global_default", source_document="SOP v4", source_section="§3"
@@ -70,29 +76,25 @@ def resolve_service_credit(
         delay = reference_time - order.pickup_window_end
 
     threshold_hours, threshold_prov = get_fact(
-        conn, order.account_id, "service_credit", "delay_threshold_hours", default=2.0
+        conn, order.account_id, "service_credit", "delay_threshold_hours",
+        default=POLICY.service_credit.default_delay_threshold_hours,
     )
     if delay.total_seconds() / 3600 <= threshold_hours or not order.carrier_fault:
         return CreditDecision(False, None, False, False, "Delay does not exceed the applicable threshold.", threshold_prov)
 
     amount, amount_prov = get_fact(
         conn, order.account_id, "service_credit", "credit_amount_inr",
-        default=min(500.0, 0.10 * (order.shipment_fee_inr or 0)),
+        default=min(
+            POLICY.service_credit.default_credit_cap_inr,
+            POLICY.service_credit.default_credit_percent * (order.shipment_fee_inr or 0),
+        ),
     )
     amount = round(amount, 2)
     return CreditDecision(
-        True, amount, amount > 1000, False,
+        True, amount, amount > POLICY.service_credit.manager_approval_threshold_inr, False,
         f"Carrier-fault delay exceeded {threshold_hours}h threshold; credit applies.",
         amount_prov,
     )
-
-
-# Policy v3 §3 default first-response targets, in minutes.
-_PLAN_DEFAULTS_MINUTES = {
-    "Enterprise": {"P1": 30, "P2": 120, "P3": 1 * 24 * 60},
-    "Growth":     {"P1": 2 * 60, "P2": 4 * 60, "P3": 2 * 24 * 60},
-    "Standard":   {"P1": 4 * 60, "P2": 1 * 24 * 60, "P3": 2 * 24 * 60},
-}
 
 
 def resolve_sla(
@@ -101,8 +103,8 @@ def resolve_sla(
 ) -> SLADecision:
     target, target_prov = get_fact(conn, account.account_id, "sla", f"{severity.lower()}_target_minutes", default=None)
     if target is None:
-        target = _PLAN_DEFAULTS_MINUTES[account.plan][severity]
-        target_prov = Provenance("global_default", "Policy v3", "§3")
+        target = POLICY.sla.targets_minutes[account.plan][severity]
+        target_prov = Provenance("global_default", POLICY.sla.source_document, POLICY.sla.source_section)
 
     coverage, _ = get_fact(conn, account.account_id, "sla", "coverage", default="24x7")
     elapsed = (reference_time - ticket.created_at).total_seconds() / 60
