@@ -1,5 +1,7 @@
 # Architecture Note: ParcelPilot Support Copilot
 
+**In one paragraph, no jargon:** a question comes in, the system figures out what's being asked and looks up whatever it needs — an order, a ticket, the right policy text — while checking the whole time whether the person asking is actually allowed to see it. Anything that needs to be numerically or legally exact (a fee, a credit, a deadline) gets computed by a plain, tested piece of code, never guessed by the AI. Only the very last step, writing the sentence that explains the answer, is left to the AI. The rest of this document is the technical version of that same idea.
+
 ## Agent design
 
 The agent is a LangGraph `StateGraph`: `plan` (Gemini classifies the query and extracts entities), then `gather` (deterministic tool selection and execution, authorization-gated), then conditional routing, then a domain resolver when one applies, then `explain` (Gemini writes the answer from already-computed evidence, never from its own arithmetic or policy judgment).
@@ -32,9 +34,22 @@ Tool selection happens via this bounded LLM classification followed by determini
 
 ## Tool design
 
+In plain terms, the agent has exactly three kinds of tools, and it's never allowed to invent a fourth kind of action on the fly: it can go look something up (a document or a record), it can run a calculation that must come out the same way every time, or it can prepare — never immediately perform — a change. All three are gated by the same authorization check, enforced in code, not by asking the model nicely.
+
 Three tool categories, all authorization-gated in `app/tools.py` (never in the model's instructions):
 
 1. **Document retrieval.** `search_policy_documents(conn, scenario, account_id, user, keyword=None)`. `scenario` narrows by tag when a resolver needs precision. `scenario=None` (the `general_inquiry` path) uses `_search_general_inquiry` in `app/agent.py`: it fetches the authorized, non-deprecated candidate set via `list_candidate_chunks` and asks the model to select which of those (already-authorized) chunks are actually relevant, falling back to `search_policy_documents`'s keyword-overlap ranking if the model call fails or returns something invalid. See "Document and structured-data handling" below for why and how this is bounded. Deprecated documents are always excluded. Account-specific chunks rank above global defaults.
+
+   ```mermaid
+   flowchart TD
+       q(["general_inquiry question"]) --> candidates["list_candidate_chunks:\nauthorized, non-deprecated chunks\n(SQL filter, before the model sees anything)"]
+       candidates --> llm{"Model judges relevance\nagainst the candidate set"}
+       llm -->|"valid chunk_ids returned"| validate["Drop any id not in\nthe candidate set"]
+       llm -->|"call fails / malformed output"| fallback["Deterministic keyword-overlap\nsearch (search_policy_documents)"]
+       validate --> citations(["Citations passed to explain"])
+       fallback --> citations
+   ```
+
 2. **Structured data lookup and calculation.** `get_order`, `get_ticket`, `get_account` (authorization-gated reads) plus `resolve_cancellation`, `resolve_service_credit`, `resolve_sla` (pure functions, zero AI involvement, unit-tested independently of any model call).
 3. **State-changing action.** `create_action` (PREPARED only, audited) and `confirm_action` (PREPARED to EXECUTED, rejects a second confirmation, always audited). The agent can only ever prepare an action; nothing reaches EXECUTED without an explicit, separate user confirmation call.
 
@@ -47,6 +62,8 @@ Documents are hand-chunked at the section level (`app/documents.py`, 19 chunks f
 **Why `general_inquiry` retrieval is LLM-based selection, not keyword search, and why that's still not "vector RAG."** Keyword-overlap ranking requires literal shared words between the question and a chunk's text (`sum(w in r["text"].lower() for w in words) >= 2`). That structurally misses a paraphrase: "do we get money back" never matches a chunk that only ever says "service credit," "courier" never matches "carrier." At this corpus size (a few dozen chunks per account at most), the fix doesn't need embeddings or a vector index -- the whole authorized candidate set fits in one prompt, so `_select_chunks_llm` (`app/agent.py`) just asks the model to judge relevance directly against the text it can already see. This is deliberately bounded, not open-ended retrieval: `list_candidate_chunks` (`app/tools.py`) does authorization and deprecation-filtering in SQL *before* the model ever sees a chunk -- the model is choosing which of an already-authorized set to surface, never which accounts or documents it's allowed to look at -- and every returned `chunk_id` is validated against that same authorized set, so a hallucinated id can never smuggle in unauthorized text. If the model call fails, times out, or returns malformed JSON, retrieval falls back to the deterministic keyword search rather than surfacing an error or silently returning no evidence. This stops being the right approach once the candidate set stops fitting comfortably in one prompt (see `docs/SCALE.md` Tier 2, where hybrid lexical+vector search with a reranker becomes the right move) -- it is a corpus-size-appropriate middle step between pure keyword overlap and a real vector index, not a permanent architecture.
 
 ## Source reliability and conflict handling
+
+In plain terms: if a customer signed a specific deal, that deal wins, always. If not, the current company-wide policy applies. If even that doesn't cover it, the product manual might. If none of the three has an answer, the system says so and asks a human, rather than guessing. Old tickets and outdated documents never get a vote, no matter how relevant they look.
 
 ```mermaid
 flowchart TD

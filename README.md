@@ -6,6 +6,18 @@ A support agent (or manager) logs in as a mocked staff user and asks natural-lan
 
 **The core principle: the AI only reads, plans, and explains. Deterministic, unit-tested Python code decides fees, credits, severity, and authorization.**
 
+**In plain terms:** think of it as a very well-briefed junior support agent who is never allowed to do math or approve anything in their head. They can look things up, ask around, and explain the answer clearly — but the moment a fee, a credit, or a permission is on the line, they hand it to a calculator that never guesses. That split is what the rest of this document explains, from a few different angles.
+
+- [What it does](#what-it-does)
+- [Architecture at a glance](#architecture-at-a-glance)
+- [Hosted demo](#hosted-demo)
+- [Deploying (Render)](#deploying-render)
+- [Setup](#setup)
+- [Run](#run)
+- [Tests](#tests)
+- [Project layout](#project-layout)
+- [Further reading](#further-reading)
+
 ## What it does
 
 - Answers natural-language support questions using only the supplied policy, SOP, agreement, product, and operational data.
@@ -17,6 +29,8 @@ A support agent (or manager) logs in as a mocked staff user and asks natural-lan
 - Proactively flags SLA-risk tickets and clusters tickets against known product issues, without waiting to be asked.
 
 ## Architecture at a glance
+
+In plain terms: a chat message comes in, the system figures out what's being asked and looks up whatever records or policy text it needs (checking who's allowed to see what along the way), a plain Python function makes any actual decision that needs to be numerically or legally exact, and only then does the AI write the sentence explaining it.
 
 ```mermaid
 flowchart LR
@@ -43,8 +57,6 @@ flowchart LR
     tools --> db
     resolvers --> db
 ```
-
-See [`docs/ARCHITECTURE_NOTE.md`](docs/ARCHITECTURE_NOTE.md) for the full agent workflow diagram, tool design, and source-reliability handling. See [`docs/PRODUCT_NOTE.md`](docs/PRODUCT_NOTE.md) for product decisions and what was left out. See [`docs/AI_TOOL_USAGE.md`](docs/AI_TOOL_USAGE.md) for AI tool usage disclosure. See [`docs/SCALE.md`](docs/SCALE.md) for how this architecture would evolve at 100x and 1000x the current data size. See [`docs/POLICY_UPDATES.md`](docs/POLICY_UPDATES.md) for how to actually update a policy or add a vendor on a live deployment.
 
 ## Hosted demo
 
@@ -96,17 +108,28 @@ pytest                          # full suite; live-model tests skip cleanly with
 GEMINI_API_KEY=your-key pytest  # includes live-model integration and generalization-eval tests
 ```
 
-`tests/test_generalization_eval.py` is a live-model evaluation suite covering roughly 29 natural-language questions (product docs, known issues, agreements, policy, historical-ticket conflicts, ambiguous and adversarial conversation, multi-turn context) using data-pack records that are not in the assessment brief's own examples. It requires a real `GEMINI_API_KEY` and takes several minutes.
+132 tests in total. `tests/test_generalization_eval.py` is a live-model evaluation suite covering 30 natural-language questions (product docs, known issues, agreements, policy, historical-ticket conflicts, ambiguous and adversarial conversation, multi-turn context, and a paraphrase specifically chosen to defeat literal keyword matching) using data-pack records that are not in the assessment brief's own examples. It requires a real `GEMINI_API_KEY` and takes several minutes.
 
 ## Project layout
 
 | Path | What it does |
 |---|---|
-| `app/agent.py` | LangGraph workflow: plan, then gather (tools), then resolve, then explain. |
+| `app/agent.py` | LangGraph workflow: plan, then gather (tools), then resolve, then explain. Also where LLM-based document relevance selection (`_select_chunks_llm`) lives, with a deterministic keyword-search fallback. |
 | `app/resolvers.py` | Deterministic business-rule functions (cancellation fee, service credit, SLA risk). No AI involvement, unit-tested independently. |
+| `app/policy_config.py` | Versioned, effective-dated global policy numbers the resolvers read from, instead of literals buried in `resolvers.py`. |
 | `app/tools.py` | Authorization-gated data and document lookups. |
 | `app/auth.py` | Mocked staff users plus `authorize()`. |
 | `app/actions.py` | Two-phase action prepare/confirm flow plus audit log. |
 | `app/overview.py` | Proactive SLA-risk and issue-clustering views. |
 | `app/policy_facts.py`, `app/documents.py` | Hand-verified contract facts and citation corpus. |
-| `app/main.py`, `app/templates/`, `app/static/` | FastAPI app and chat UI. |
+| `app/main.py`, `app/templates/`, `app/static/` | FastAPI app and chat UI (live step trail, pinned input bar). |
+
+## Further reading
+
+| Document | Covers |
+|---|---|
+| [`docs/ARCHITECTURE_NOTE.md`](docs/ARCHITECTURE_NOTE.md) | Full agent workflow diagram, tool design, source-reliability handling, and why RAG alone isn't used for anything that computes a fee/credit/SLA decision. |
+| [`docs/PRODUCT_NOTE.md`](docs/PRODUCT_NOTE.md) | Which client problem was prioritized, what's left out and why, and the one metric that would judge if this is actually useful. |
+| [`docs/SCALE.md`](docs/SCALE.md) | How this architecture would evolve at 100x and 1000x the current data size, and how policy updates would be handled at real scale. |
+| [`docs/POLICY_UPDATES.md`](docs/POLICY_UPDATES.md) | The actual runbook for updating a policy or adding a vendor on a live deployment, today. |
+| [`docs/AI_TOOL_USAGE.md`](docs/AI_TOOL_USAGE.md) | AI tool usage disclosure. |

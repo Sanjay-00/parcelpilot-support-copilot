@@ -13,6 +13,15 @@ That mirrors how the rest of this project's own progress log is written,
 and it matters here because the concepts get genuinely more complex as the
 tiers go up.
 
+**Contents:**
+- [The one idea that never changes](#the-one-idea-that-never-changes)
+- [Tier 0: what is actually built right now](#tier-0-what-is-actually-built-right-now)
+- [Tier 1: ~10-50x bigger](#tier-1-roughly-10-to-50-times-bigger-dozens-to-100-documents-a-few-new-tables)
+- [Tier 2: ~100x bigger](#tier-2-roughly-100-times-bigger-hundreds-of-documents-30-tables)
+- [Tier 3: 1000+ documents, a real semantic layer](#tier-3-1000-documents-100-tables-100-columns-each)
+- [Summary table](#summary)
+- [Keeping policy config in sync as the document set changes](#keeping-policy-config-in-sync-as-the-document-set-changes) — the RAG-vs-deterministic-computation question, and what changes at real document-change volume
+
 ## The one idea that never changes
 
 Plain language: no matter how big the data gets, the model should never be

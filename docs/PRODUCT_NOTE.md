@@ -1,7 +1,5 @@
 # Product Note
 
-*Draft: review before submitting. The metric and the "what's next" priorities are judgment calls that should reflect your own view, not just mine.*
-
 ## Additional client problem addressed
 
 Both are substantively addressed, but **Trust and Reliability** is the primary one. It is woven through the whole system rather than bolted on.
@@ -18,17 +16,19 @@ Both are substantively addressed, but **Trust and Reliability** is the primary o
 
 1. **Enforce the credit cap and other numeric limits that need a ledger.** Northstar's monthly aggregate service-credit cap is explicitly not enforced today; there is no ledger of already-issued credits in the supplied data to check against. This is a real correctness gap for a production system, not a nice-to-have.
 2. **A real business-hours calendar for SLA targets.** LumenWorks' SLA is defined in business hours, but `resolve_sla` currently uses wall-clock time as a documented proxy (flagged via `is_wall_clock_proxy` on the decision). Without a calendar, an at-risk flag near a weekend or holiday boundary can be wrong in either direction.
-3. **Persistent, shared conversation state.** Currently in-memory and per-process (`app/conversation.py`). Fine for this deployment, wrong for anything running more than one worker process.
+3. **Persistent, shared conversation state and database.** Currently both are in-memory/ephemeral (`app/conversation.py`, and SQLite on Render's ephemeral disk). Fine for this deployment, wrong for anything running more than one worker process or needing an audit trail that survives a redeploy.
 4. **Notification and paging integration for P1s and SLA breaches**, so the proactive-detection view actually reaches someone instead of requiring a human to check the Overview tab.
-5. **Broaden retrieval as the corpus grows.** The hand-chunked, keyword-ranked document search is the right choice at 19 chunks across 6 documents. It would need to become embedding-based if the real document set were 10 to 100 times larger.
+5. **A deterministic staleness checker for `app/documents.py`** (e.g. flag a `CURRENT` document that logically supersedes another `CURRENT` document on the same topic without the old one marked `DEPRECATED`, or a `DEPRECATED` document whose `effective_date` isn't actually older than its replacement). This is a small, structural, non-LLM check — a natural extension of `tests/test_policy_config_drift.py` — not the much larger automated fact-diffing pipeline described in `docs/SCALE.md`, which is intentionally out of scope at this document count.
+6. **Broaden retrieval as the corpus grows.** LLM-based relevance selection over the full candidate set (see Architecture Note) is the right choice at today's size; it would need to become embedding-based if the real document set were 10 to 100 times larger.
 
 ## What I intentionally left out
 
-- **Hosted deployment and Docker.** Treated as a separate follow-up task.
+- **A persistent database/volume for the hosted deployment.** Render's free tier uses ephemeral disk, so the SQLite database, prepared actions, and conversation history reset on every redeploy. Acceptable for a demo; a real deployment needs a managed database or a persistent volume.
 - **Real authentication.** Login is a mocked user switcher, per the assessment's explicit allowance to mock authentication, account context, and user roles.
 - **Vector or semantic search.** Deliberate, not a shortcut. See the Architecture Note's trade-offs section.
 - **The Northstar monthly credit cap** (see above; needs a ledger this data pack does not provide).
 - **A true business-hours SLA calendar** (see above).
+- **The automated policy-change-detection pipeline described in `docs/SCALE.md`.** Real infrastructure for hundreds/thousands of documents; unexercisable and undemonstrable against 6 documents, so documented rather than built.
 
 ## One metric
 
