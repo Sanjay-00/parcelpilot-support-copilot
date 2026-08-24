@@ -81,6 +81,38 @@ def get_account(conn: sqlite3.Connection, account_id: str, user: StaffUser) -> A
     )
 
 
+def _authorized_chunk_rows(conn: sqlite3.Connection, account_id: str | None):
+    # Deprecated documents are excluded unconditionally, and a chunk scoped to
+    # another customer never comes back for this account_id -- this is the one
+    # place both search_policy_documents and list_candidate_chunks pull rows
+    # from, so that guarantee can't drift between the two retrieval paths.
+    return conn.execute(
+        "SELECT * FROM document_chunks WHERE status != 'DEPRECATED' "
+        "AND (customer_id IS NULL OR customer_id = ?)", (account_id,)
+    ).fetchall()
+
+
+def list_candidate_chunks(
+    conn: sqlite3.Connection, account_id: str | None, user: StaffUser,
+) -> list[Citation]:
+    """Every authorized, non-deprecated chunk for account_id (or the global,
+    non-customer-specific corpus if account_id is None) -- unranked and not
+    filtered by keyword. This is the raw candidate set agent.py hands to an LLM
+    for relevance selection on a general_inquiry question. Access control and
+    deprecation-exclusion happen here, in the data layer, exactly as in
+    search_policy_documents: the LLM only ever sees chunks already authorized
+    for this user/account, it never decides which accounts it can see."""
+    if account_id is not None and not authorize(user, account_id):
+        raise AccessDenied(f"Not authorized for account {account_id}")
+
+    rows = sorted(_authorized_chunk_rows(conn, account_id), key=lambda r: r["customer_id"] is None)
+    return [
+        Citation(r["chunk_id"], r["document_name"], r["section"], r["text"],
+                 r["status"], r["effective_date"], r["customer_id"])
+        for r in rows
+    ]
+
+
 def search_policy_documents(
     conn: sqlite3.Connection, scenario: str | None, account_id: str | None, user: StaffUser,
     keyword: str | None = None,
@@ -90,14 +122,14 @@ def search_policy_documents(
     instead of gated by a fixed scenario tag -- this is what general/unclassified
     support questions (e.g. "is bulk upload supported?", "known issue with
     webhooks?") use, so the reasoning surface isn't limited to the handful of
-    scenario tags the deterministic resolvers happen to use."""
+    scenario tags the deterministic resolvers happen to use. Kept as the
+    deterministic fallback agent.py falls back to when LLM-based chunk
+    selection (list_candidate_chunks + an LLM call) fails or is unavailable.
+    """
     if account_id is not None and not authorize(user, account_id):
         raise AccessDenied(f"Not authorized for account {account_id}")
 
-    rows = conn.execute(
-        "SELECT * FROM document_chunks WHERE status != 'DEPRECATED' "
-        "AND (customer_id IS NULL OR customer_id = ?)", (account_id,)
-    ).fetchall()
+    rows = _authorized_chunk_rows(conn, account_id)
 
     if scenario is not None:
         candidates = [r for r in rows if scenario in r["scenario_tags"].split(",")]
@@ -132,6 +164,7 @@ def search_policy_documents(
     candidates = sorted(candidates, key=lambda r: r["customer_id"] is None)
 
     return [
-        Citation(r["document_name"], r["section"], r["text"], r["status"], r["effective_date"], r["customer_id"])
+        Citation(r["chunk_id"], r["document_name"], r["section"], r["text"],
+                 r["status"], r["effective_date"], r["customer_id"])
         for r in candidates
     ]

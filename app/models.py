@@ -81,6 +81,7 @@ class SLADecision:
 
 @dataclass(frozen=True)
 class Citation:
+    chunk_id: str
     document_name: str
     section: str
     text: str

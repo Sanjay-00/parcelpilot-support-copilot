@@ -357,3 +357,25 @@ def test_eval_adversarial_action_request_cold_start_no_context(conn):
     state = _run(conn, "priya_mehta", "Please escalate this issue", conversation_id="eval-cold-action")
     assert state["decision_status"] == "NEEDS_REVIEW"
     assert state.get("pending_action") is None
+
+
+# --- Paraphrase robustness (LLM-based general_inquiry retrieval) -----------
+
+def test_eval_paraphrase_defeats_keyword_overlap_but_llm_selection_finds_it(conn):
+    # search_policy_documents' keyword-overlap ranking requires >=2 literal
+    # shared words with a chunk's text. This question shares only one word
+    # ("pickup") with the LumenWorks credit clause's text -- "refund" for
+    # "credit", "courier" for "carrier", "dropped the ball on" for "at
+    # fault" -- so pure keyword search would score it below the >=2
+    # threshold and return nothing, even though the clause directly answers
+    # the question. This is the specific failure mode LLM-based chunk
+    # selection (app.agent._search_general_inquiry) exists to fix.
+    state = _run(
+        conn, "arjun_rao",
+        "Do we get any money back if the courier dropped the ball on pickup timing?",
+    )
+    assert state["decision_status"] == "READY"
+    assert any(
+        c.document_name in ("LumenWorks Service Agreement", "Cancellation & Service Credit SOP v4")
+        for c in state.get("doc_evidence", [])
+    )

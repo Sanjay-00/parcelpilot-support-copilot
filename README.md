@@ -44,7 +44,22 @@ flowchart LR
     resolvers --> db
 ```
 
-See [`docs/ARCHITECTURE_NOTE.md`](docs/ARCHITECTURE_NOTE.md) for the full agent workflow diagram, tool design, and source-reliability handling. See [`docs/PRODUCT_NOTE.md`](docs/PRODUCT_NOTE.md) for product decisions and what was left out. See [`docs/AI_TOOL_USAGE.md`](docs/AI_TOOL_USAGE.md) for AI tool usage disclosure.
+See [`docs/ARCHITECTURE_NOTE.md`](docs/ARCHITECTURE_NOTE.md) for the full agent workflow diagram, tool design, and source-reliability handling. See [`docs/PRODUCT_NOTE.md`](docs/PRODUCT_NOTE.md) for product decisions and what was left out. See [`docs/AI_TOOL_USAGE.md`](docs/AI_TOOL_USAGE.md) for AI tool usage disclosure. See [`docs/SCALE.md`](docs/SCALE.md) for how this architecture would evolve at 100x and 1000x the current data size.
+
+## Hosted demo
+
+`<add your Render/Railway/Fly.io URL here after deploying>`
+
+## Deploying (Render)
+
+This repo includes `render.yaml` for a one-step deploy:
+
+1. Push this repo to GitHub (it already includes the required `ParcelPilot_Assessment_Data.xlsx`; the 6 PDFs are intentionally excluded since nothing reads them at runtime).
+2. On [Render](https://dashboard.render.com), choose **New > Blueprint**, point it at this repo, and it will pick up `render.yaml` automatically.
+3. Set the `GEMINI_API_KEY` environment variable in the Render dashboard (it's declared as `sync: false` in `render.yaml` so Render prompts for it rather than reading it from a file).
+4. Deploy. The database seeds itself from the committed workbook on first request, same as local.
+
+Note: Render's free tier uses ephemeral disk, so `app/parcelpilot.db` (and in-memory conversation state) resets on redeploy or a free-tier spin-down/spin-up cycle -- fine for a demo, and consistent with the documented single-process limitation in the Product Note.
 
 ## Setup
 

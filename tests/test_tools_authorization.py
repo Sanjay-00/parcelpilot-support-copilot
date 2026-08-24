@@ -4,7 +4,10 @@ from app.auth import get_user, load as load_users
 from app.documents import load as load_docs
 from app.policy_facts import load as load_facts
 from app.seed_accounts_orders_tickets import load as load_base
-from app.tools import AccessDenied, get_order, get_ticket, get_account, search_policy_documents
+from app.tools import (
+    AccessDenied, get_order, get_ticket, get_account,
+    list_candidate_chunks, search_policy_documents,
+)
 from app.config import DATA_PACK_XLSX
 
 
@@ -113,6 +116,32 @@ def test_unauthorized_search_policy_documents_denied(conn):
     arjun = get_user(conn, "arjun_rao")   # scoped to ACCT-002 only
     with pytest.raises(AccessDenied):
         search_policy_documents(conn, "cancellation", "ACCT-001", arjun)
+
+
+def test_list_candidate_chunks_excludes_deprecated_and_other_customer_scope(conn):
+    _seed(conn)
+    priya = get_user(conn, "priya_mehta")   # scoped to ACCT-001 (Northstar), ACCT-004
+    candidates = list_candidate_chunks(conn, "ACCT-001", priya)
+
+    assert all(c.status != "DEPRECATED" for c in candidates)
+    assert all(c.customer_id in (None, "ACCT-001") for c in candidates)
+    assert any(c.customer_id == "ACCT-001" for c in candidates)   # Northstar-specific chunks present
+    assert all(c.chunk_id for c in candidates)   # every candidate carries a stable id
+
+
+def test_list_candidate_chunks_unauthorized_account_denied(conn):
+    _seed(conn)
+    arjun = get_user(conn, "arjun_rao")   # scoped to ACCT-002 only
+    with pytest.raises(AccessDenied):
+        list_candidate_chunks(conn, "ACCT-001", arjun)
+
+
+def test_list_candidate_chunks_global_corpus_when_no_account(conn):
+    _seed(conn)
+    priya = get_user(conn, "priya_mehta")
+    candidates = list_candidate_chunks(conn, None, priya)
+    assert all(c.customer_id is None for c in candidates)
+    assert len(candidates) > 0
 
 
 def test_order_exception_message_identical_for_cross_account_and_nonexistent(conn):

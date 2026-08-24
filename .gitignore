@@ -5,4 +5,9 @@ __pycache__/
 parcelpilot.db
 *.stackdump
 .pytest_cache/
-AI Agent Assessment - Candidate Pack/
+AI Agent Assessment - Candidate Pack/*
+# The workbook is the only file the app reads at runtime (see README "Data pack")
+# and is committed so a hosted deployment built straight from this repo is
+# self-contained; the 6 policy/agreement PDFs are excluded since nothing in the
+# app parses them at runtime.
+!AI Agent Assessment - Candidate Pack/ParcelPilot_Assessment_Data.xlsx
