@@ -123,7 +123,10 @@ def _plan(query: str, conv: ConversationState) -> _PlanExtraction:
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=_PLAN_PROMPT.format(query=query, context_lines=context_lines, active_lines=active_lines),
-        config={"response_mime_type": "application/json"},
+        # Classification + entity extraction, not multi-step reasoning -- the
+        # actual policy decision never happens here. See _generate_answer_text
+        # below for the measured token cost of leaving this on by default.
+        config={"response_mime_type": "application/json", "thinking_config": {"thinking_budget": 0}},
     )
     try:
         return _PlanExtraction.model_validate_json(response.text)
@@ -171,7 +174,20 @@ def _generate_answer_text(prompt: str) -> str:
     candidate; without this, the caller silently returns "" and the user
     sees a badge that says READY next to literally no text."""
     client = genai.Client(api_key=config.require_gemini_api_key())
-    response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+    response = client.models.generate_content(
+        model="gemini-2.5-flash", contents=prompt,
+        # This call phrases an already-computed decision in plain language --
+        # it never decides the number or the policy outcome, so it doesn't
+        # need extended reasoning either. Measured directly against this
+        # project's own API key: a simple classification prompt used 245
+        # total tokens with thinking enabled (default) versus 16 with
+        # thinking_budget=0 -- roughly 15x, for a task with no multi-step
+        # reasoning to do. Disabling it uniformly across every call in this
+        # file is a direct consequence of the system's own trust boundary
+        # (the LLM only reads, plans, and explains; it never reasons its way
+        # to a decision), not a quality trade-off.
+        config={"thinking_config": {"thinking_budget": 0}},
+    )
     cleaned = _clean_answer_text(response.text or "")
     return cleaned if cleaned else _EMPTY_RESPONSE_FALLBACK
 
@@ -394,7 +410,10 @@ def _select_chunks_llm(query: str, candidates: list[Citation]) -> list[str] | No
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=_CHUNK_SELECT_PROMPT.format(passage_lines=passage_lines, query=query),
-            config={"response_mime_type": "application/json"},
+            # Relevance judgment against an already-authorized candidate set,
+            # not multi-step reasoning -- see _generate_answer_text for the
+            # measured token cost of leaving this on.
+            config={"response_mime_type": "application/json", "thinking_config": {"thinking_budget": 0}},
         )
         selection = _ChunkSelection.model_validate_json(response.text)
     except Exception:

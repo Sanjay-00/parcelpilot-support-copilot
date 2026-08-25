@@ -92,6 +92,12 @@ def extract_incident_facts(subject: str, description: str) -> IncidentFacts:
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=_PROMPT.format(subject=subject, description=description),
-        config={"response_mime_type": "application/json"},
+        # This is a fixed-schema extraction task (six true/false/"unknown"
+        # fields), not multi-step reasoning -- the actual severity DECISION
+        # is made by map_severity()'s plain Python logic afterward, so
+        # extended "thinking" here only spends tokens without improving the
+        # extraction. Measured: ~15x more total tokens with thinking on for
+        # an equivalent-shaped classification prompt.
+        config={"response_mime_type": "application/json", "thinking_config": {"thinking_budget": 0}},
     )
     return IncidentFacts.model_validate_json(response.text)
