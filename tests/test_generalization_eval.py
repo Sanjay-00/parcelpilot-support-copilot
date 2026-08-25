@@ -20,6 +20,7 @@ import pytest
 
 from app.agent import run
 from app.auth import get_user, load as load_users
+from app.conversation import get_or_create
 from app.documents import load as load_docs
 from app.policy_facts import load as load_facts
 from app.seed_accounts_orders_tickets import load as load_base
@@ -183,6 +184,29 @@ def test_eval_conversational_followup_resolves_pronoun(conn):
     second = run("Can we cancel it instead?", user, conn, conversation_id=conv_id)
     assert second["decision_status"] == "READY"
     assert second["policy_decision"].allowed is False  # ORD-1002 is PICKED_UP
+
+
+def test_eval_followup_resolves_after_raw_history_window_exceeded(conn):
+    # conversation.py caps raw turn text at 6 entries (3 exchanges) -- by
+    # design, structured state (active_order_id etc.) is what actually
+    # carries continuity, not the raw transcript. Four unrelated exchanges
+    # push turn 1's raw text out of that window entirely; the 5th turn's
+    # follow-up must still resolve via active_order_id, not by the model
+    # re-reading turn 1's text (which is verified gone).
+    conv_id = "eval-followup-beyond-history-window"
+    _run(conn, "priya_mehta", "Can Northstar cancel ORD-1001 without a fee?", conversation_id=conv_id)
+    user = get_user(conn, "priya_mehta")
+    run("what's the difference between P1 and P2 severity?", user, conn, conversation_id=conv_id)
+    run("is bulk upload supported on the growth plan?", user, conn, conversation_id=conv_id)
+    run("what does DELIVERED status mean?", user, conn, conversation_id=conv_id)
+
+    conv = get_or_create("priya_mehta", conv_id)
+    assert conv.active_order_id == "ORD-1001"
+    assert not any("ORD-1001" in t.text for t in conv.turns)  # raw text genuinely gone
+
+    fifth = run("was there a fee for that cancellation?", user, conn, conversation_id=conv_id)
+    assert fifth["decision_status"] == "READY"
+    assert fifth["policy_decision"].fee_inr == 0
 
 
 # --- Contextual actions ------------------------------------------------------------
