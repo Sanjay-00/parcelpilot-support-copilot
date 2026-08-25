@@ -318,6 +318,31 @@ def test_eval_adversarial_account_switch_mid_conversation(conn):
     assert not any(c.document_name == "Northstar Enterprise Agreement" for c in second.get("doc_evidence", []))
 
 
+def test_eval_ambiguous_account_confirmation_resumes_original_scenario(conn):
+    # Found via live use, not designed test-first: Priya (scoped to both
+    # Northstar and Axis) asks a service_credit question with no account
+    # named, correctly gets asked "which account?", then replies with a bare
+    # account-name confirmation that carries no topic information of its own
+    # ("yes its about northstar only"). The follow-up must resume the
+    # ORIGINAL service_credit question, not reclassify from the content-free
+    # confirmation alone -- a real live failure showed this reclassifying to
+    # "sla" and answering an unrelated question about response-time targets
+    # instead of the customer's actual reimbursement question.
+    conv_id = "eval-ambiguous-account-confirmation"
+    first = _run(
+        conn, "priya_mehta",
+        "custom pickup was 1 hour late, do we need to give any reimbursememnt to him?",
+        conversation_id=conv_id,
+    )
+    assert first["decision_status"] == "NEEDS_REVIEW"
+    assert "which account" in first["answer_text"].lower()
+
+    user = get_user(conn, "priya_mehta")
+    second = run("yes its about northstar only", user, conn, conversation_id=conv_id)
+    assert second.get("detected_scenario") == "service_credit"
+    assert any(t["tool"] == "search_policy_documents" and t["args"] == "service_credit" for t in second.get("tool_call_log", []))
+
+
 def test_eval_adversarial_insufficient_information_vague_request(conn):
     # Arjun is scoped to exactly one account (LumenWorks) -- per the
     # already-established single-account auto-resolve behavior, a vague

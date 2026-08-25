@@ -39,6 +39,12 @@ class ConversationState:
     active_scenario: str | None = None
     recent_decision_summary: str | None = None
     pending_action: dict | None = None  # {action_id, action_type, account_id, ticket_id, order_id}
+    # Set when gather_node asks a multi-account agent "which account is this
+    # about?" -- lets the next turn deterministically resume active_scenario
+    # if the reply is just a bare account confirmation ("yes, northstar"),
+    # rather than trusting the planner to re-infer the scenario from a
+    # confirmation reply that carries no topic information of its own.
+    awaiting_account_clarification: bool = False
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     title: str | None = None  # set from the first user turn, for the recent-conversations list

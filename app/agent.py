@@ -61,13 +61,29 @@ general_inquiry, unclear.
 - Use "action_request" if the message asks you to DO something (e.g. "escalate this",
   "create a follow-up", "update the ticket") rather than asking a question.
 - Use "cancellation"/"service_credit"/"sla" only for a question that maps to one of
-  those three specific calculations.
+  those three specific calculations:
+  - "service_credit" = a shipment PICKUP was late or failed (the carrier didn't show up
+    within the pickup window), and the question is whether the customer is owed money
+    back for that -- keywords like "late pickup," "reimbursement," "credit," "refund,"
+    "owe them anything" for a delayed/failed pickup all point here.
+  - "sla" = a support TICKET's response time (how fast ParcelPilot itself responds to or
+    resolves an issue, P1/P2/P3 targets), not shipment/pickup timing. Do not use "sla"
+    just because a question mentions something being "late" -- a late PICKUP is
+    service_credit, a late SUPPORT RESPONSE to a ticket is sla. When in doubt about which
+    of these two a "late"/timing question means, prefer service_credit unless the
+    question is specifically about how quickly support itself responded.
+  - "cancellation" = whether an order can be cancelled and whether a fee applies.
 - Use "general_inquiry" for any other legitimate support question answerable from the
   document corpus -- product capability/plan limits, known issues, what an agreement or
   policy says about something, ticket investigation not about SLA timing, etc. This is
   the default for a real support question that isn't one of the three calculations above.
 - Use "unclear" if the text is not a support question at all (e.g. small talk, meta
   questions about you, unrelated requests) -- do not guess an order/ticket ID in that case.
+- If this message does not by itself describe a new problem or question -- it only
+  names/confirms an account, answers a clarifying question like "which account?", or is a
+  bare "yes"/short acknowledgement -- and a scenario is already active in the context below,
+  you MUST reuse that active scenario exactly, not reclassify from this short reply alone.
+  A confirmation reply carries no topic information of its own; only the active context does.
 
 Recent conversation turns (oldest first, may be empty for a new conversation):
 {context_lines}
@@ -337,9 +353,10 @@ _CLARIFY_AMBIGUOUS_REFERENCE = (
 _STOPWORDS = {
     "a", "an", "the", "is", "are", "was", "were", "do", "does", "did", "can", "could",
     "should", "would", "will", "my", "our", "your", "their", "i", "you", "we", "they",
-    "it", "this", "that", "these", "those", "of", "for", "to", "in", "on", "at", "about",
+    "it", "its", "this", "that", "these", "those", "of", "for", "to", "in", "on", "at", "about",
     "and", "or", "not", "what", "which", "who", "how", "why", "when", "where", "if",
     "currently", "please", "hi", "hello", "thanks", "thank", "get", "have", "has",
+    "yes", "yeah", "yep", "sure", "correct", "right", "only", "just",
 }
 
 
@@ -357,6 +374,21 @@ def _extract_keywords(query: str) -> str:
         w for w in words
         if w not in _STOPWORDS and (len(w) > 2 or any(ch.isdigit() for ch in w))
     )
+
+
+def _is_pure_confirmation(query: str, account_name: str) -> bool:
+    """True if query carries no topic information beyond naming/confirming
+    account_name -- e.g. "yes its about northstar only". Used to decide
+    whether a reply to "which account is this about?" should deterministically
+    resume the conversation's already-active scenario rather than trust a
+    fresh classification of a message that has nothing else to classify.
+    Real failure this guards against: the planner reclassified such a reply
+    as an unrelated scenario ("sla" instead of the actual "service_credit"
+    question being asked), answering a different question than the one the
+    person actually asked -- found via live use, not designed test-first."""
+    remaining = set(_extract_keywords(query).split())
+    remaining -= set(_extract_keywords(account_name).split())
+    return not remaining
 
 
 class _ChunkSelection(BaseModel):
@@ -531,6 +563,26 @@ def gather_node(state: AgentState, config: dict) -> dict:
         _resolve_account_name(conn, account_name_mentioned) if account_name_mentioned else None
     )
 
+    # Deterministic override, not another prompt instruction: if we're still
+    # waiting on a reply to "which account is this about?" and this message
+    # both resolves that account and carries no other topic content, resume
+    # the scenario that was already active rather than trust a fresh
+    # classification of a reply that has nothing else to classify. A live
+    # session found the planner reclassify such a reply into an unrelated
+    # scenario ("sla" instead of the actual "service_credit" question),
+    # answering a different question than the one actually asked -- adding
+    # an explicit prompt rule alone did not reliably fix it, so this is
+    # enforced in code instead, consistent with this system's own principle
+    # that structural/state-machine decisions are not the model's job.
+    if (
+        conv.awaiting_account_clarification and resolved_account_id
+        and not entities.get("order_id") and not entities.get("ticket_id")
+        and conv.active_scenario in ("cancellation", "service_credit", "sla")
+        and _is_pure_confirmation(state["user_query"], account_name_mentioned)
+    ):
+        scenario = conv.active_scenario
+    conv.awaiting_account_clarification = False
+
     # No order/ticket/account named, and no active conversation context either:
     # for staff scoped to exactly one account, a bare question like "my order"
     # or "our account" unambiguously means that one account. Defaulting here
@@ -621,6 +673,7 @@ def gather_node(state: AgentState, config: dict) -> dict:
             ]
             if not citations:
                 return {
+                    "detected_scenario": scenario,
                     "data_evidence": {"account_only": account}, "tool_call_log": tool_log,
                     "authorization_result": "AUTHORIZED", "decision_status": "NEEDS_REVIEW",
                     "answer_text": (
@@ -629,6 +682,7 @@ def gather_node(state: AgentState, config: dict) -> dict:
                     ),
                 }
             return {
+                "detected_scenario": scenario,
                 "data_evidence": {"account_only": account},
                 "doc_evidence": citations, "tool_call_log": tool_log,
                 "authorization_result": "AUTHORIZED", "decision_status": "READY",
@@ -671,6 +725,7 @@ def gather_node(state: AgentState, config: dict) -> dict:
             # active context to disambiguate -- ask which one, rather than
             # guessing or falling back to generic help text.
             names = [get_account(conn, aid, user).account_name for aid in user.assigned_account_ids]
+            conv.awaiting_account_clarification = True
             return {
                 "authorization_result": "N/A", "decision_status": "NEEDS_REVIEW",
                 "answer_text": f"Which account is this about? You're scoped to {', '.join(names)}.",
